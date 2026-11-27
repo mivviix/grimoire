@@ -18,7 +18,7 @@ function Log($m) { "$(Get-Date -f s) $m" | Add-Content $log }
 $mutex = New-Object Threading.Mutex($false, 'grimoire-sync-' + ($Repo.ToLower() -replace '[\\/:]', '_'))
 if (-not $mutex.WaitOne(0)) { exit }
 
-function Git { $out = & git @args 2>&1; if ($LASTEXITCODE) { Log "git $args -> $LASTEXITCODE $out" }; $out }
+function GitLog { $out = & git @args 2>&1; if ($LASTEXITCODE) { Log "git $args -> $LASTEXITCODE $out" }; $out }
 
 function Exclude-BigFiles {
     $exclude = Join-Path $gitDir 'info\exclude'
@@ -39,7 +39,7 @@ function Exclude-BigFiles {
 }
 
 function Merge-Remote {
-    Git fetch --quiet origin | Out-Null
+    GitLog fetch --quiet origin | Out-Null
     if ($LASTEXITCODE) { return }
     $branch = (git rev-parse --abbrev-ref HEAD).Trim()
     git merge --no-edit "origin/$branch" 2>&1 | Out-Null
@@ -59,7 +59,7 @@ function Merge-Remote {
         }
         git checkout --theirs -- $p; git add -- $p
     }
-    Git commit --no-edit -m "sync: merge with conflicts kept from $env:COMPUTERNAME" | Out-Null
+    GitLog commit --no-edit -m "sync: merge with conflicts kept from $env:COMPUTERNAME" | Out-Null
 }
 
 function Sync {
@@ -67,12 +67,12 @@ function Sync {
     Exclude-BigFiles
     git add -A 2>&1 | Out-Null
     git diff --cached --quiet
-    if ($LASTEXITCODE) { Git commit -q -m "sync: $env:COMPUTERNAME $(Get-Date -f 'yyyy-MM-dd HH:mm:ss')" | Out-Null }
+    if ($LASTEXITCODE) { GitLog commit -q -m "sync: $env:COMPUTERNAME $(Get-Date -f 'yyyy-MM-dd HH:mm:ss')" | Out-Null }
     for ($i = 0; $i -lt 3; $i++) {
         Merge-Remote
         $ahead = git rev-list --count '@{u}..HEAD' 2>$null
         if (-not $ahead -or $ahead -eq '0') { return }
-        Git push -q origin HEAD | Out-Null
+        GitLog push -q origin HEAD | Out-Null
         if (-not $LASTEXITCODE) { Log "pushed $ahead commit(s)"; return }
     }
 }
