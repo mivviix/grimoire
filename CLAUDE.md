@@ -11,8 +11,12 @@ The agent's Roblox library. Sessions *in this folder* change how it works; every
   `--new-shelf "description"` alongside its first entry; commits every write to this repo
   (`git commit -- <file>`), messages start with `inscribe:`.
 - The vault ships empty (the starter shelves' `_about.md` only) and is filled by agents as they work.
-- `tools/skill/SKILL.md`: what agents are told. `tools/install.sh` symlinks both commands into ~/.local/bin
-  and the skill into ~/.claude/skills/grimoire.
+- `tools/skill/SKILL.md`: what agents are told. `tools/install.sh` (Linux/macOS) symlinks both commands
+  into ~/.local/bin and the skill into ~/.claude/skills/grimoire. `tools/install.bat` (Windows, no admin)
+  writes `grim.cmd` / `inscribe.cmd` launchers (`py -3 -X utf8`) into %USERPROFILE%\.local\bin, adds it to the
+  user PATH, and junctions the skill. Keep the two installers doing the same thing; `.bat` stays CRLF
+  (`.gitattributes`).
+- Cross-platform: entry names always use `/` (`as_posix`); vault files are UTF-8 (Windows runs with `-X utf8`).
 - `tools/test_grimoire.py`: self-check against a temp vault: `python3 tools/test_grimoire.py`.
 
 Stdlib Python only, no venv. `GRIMOIRE_VAULT` points the tools at another vault (tests use it).

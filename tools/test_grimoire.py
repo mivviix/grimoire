@@ -10,7 +10,7 @@ TOOLS = Path(__file__).resolve().parent
 
 
 def run(tool, *args, stdin=None, ok=True):
-    r = subprocess.run([sys.executable, "-I", str(TOOLS / f"{tool}.py"), *args], input=stdin or "",
+    r = subprocess.run([sys.executable, "-I", "-X", "utf8", str(TOOLS / f"{tool}.py"), *args], input=stdin or "",
                        capture_output=True, text=True, env={**os.environ, "GRIMOIRE_VAULT": vault})
     assert (r.returncode == 0) == ok, f"{tool} {args}: rc={r.returncode}\n{r.stdout}{r.stderr}"
     return r.stdout + r.stderr

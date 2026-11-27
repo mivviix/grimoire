@@ -58,7 +58,7 @@ def parse(path):
         body = "".join(keep)
     rel = path.relative_to(VAULT)
     return {
-        "name": str(rel.with_suffix("")) if path.suffix == ".md" else str(rel),
+        "name": (rel.with_suffix("") if path.suffix == ".md" else rel).as_posix(),  # "/" on Windows too
         "shelf": rel.parts[0],
         "path": path,
         "summary": meta.get("summary", ""),
