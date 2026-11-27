@@ -1,56 +1,58 @@
 # grimoire (maintenance sessions)
 
-The agent's Roblox library. Sessions *in this folder* change how it works; everywhere else agents only use it.
+Sessions *in this repo* change how grimoire works. Everywhere else, agents only use it.
 
-- `vault/`: the content. One folder per shelf, flat (no subfolders). Each shelf has `_about.md` (first line =
-  its description in `grim`). Entries are `name.md` with frontmatter (`summary:`, `tags:`) or code files
-  (`.luau/.lua/.py`) with `-- summary:` / `-- tags:` header lines. Links are `[[name]]` or `[[shelf/name]]`.
-- `tools/grim.py`: read CLI (map, ls, find, show with outline/sections, path). Built to keep context small:
-  long entries print an outline, find prints 8 hits with one matching line each.
-- `tools/inscribe.py`: write CLI (new, add, replace, meta, jot, check). Opens a new shelf only with
-  `--new-shelf "description"` alongside its first entry; commits and pushes every write
-  (`git commit -- <file>`), messages start with `inscribe:`.
-- The vault ships empty, with no preset shelves and not even a `vault/` folder. Agents open shelves as they
-  file finds and decide the structure themselves; the skill steers them to a few broad shelves. Don't seed
-  shelves or content here.
-- `tools/skill/SKILL.md`: what agents are told. `tools/install.sh` (Linux/macOS) symlinks both commands
-  into ~/.local/bin and the skill into ~/.claude/skills/grimoire. `tools/install.bat` (Windows, no admin)
-  writes `grim.cmd` / `inscribe.cmd` launchers (`py -3 -X utf8`) into %USERPROFILE%\.local\bin, adds it to the
-  user PATH, and junctions the skill. Keep the two installers doing the same thing; `.bat` stays CRLF
-  (`.gitattributes`).
-- Cross-platform: entry names always use `/` (`as_posix`); vault files are UTF-8 (Windows runs with `-X utf8`).
-- `tools/test_grimoire.py`: self-check against a temp vault: `python3 tools/test_grimoire.py` (also syncs two
-  fake machines through a local bare repo).
+## What it is
+A Claude Code mod (plugin: hooks + skill + two CLIs) that anyone can clone and have their agent set up
+(README → SETUP.md). It plugs a **shared vault** into every session: a library the agents build themselves
+while they work, and that users "train" by feeding it, holding lessons, guides, skills, snippets, runnable
+tools (in time, things like 3D-asset or animation generators: grimoire's own small toolkit) and small assets.
+Two or more people share one vault on GitHub. Every save is pushed, and every agent hears about new entries
+by itself (the hooks). Mostly Roblox work, but nothing in the code assumes it.
 
-Stdlib Python only, no venv.
+grimoire is its own thing. It never touches, calls or depends on forgekit or any other local toolkit.
 
-## The vault lives upstream
+## Rules that always hold
+- **The vault lives upstream.** Its truth is the git remote, never a local folder. The CLIs work on a private
+  clone (`~/.local/share/grimoire`, `%LOCALAPPDATA%\grimoire`; `GRIMOIRE_HOME`) made by `grim init URL`.
+  `grim` pulls at most once a minute; `inscribe` pulls before and pushes after every write. A failed push
+  stays committed and goes up on the next run. `GRIMOIRE_VAULT=<folder>` is the only unsynced mode (tests).
+  New read or write paths go through `sync()` / `push()`. In a session here, `git pull` before touching
+  `vault/`: agents push to it all the time.
+- **Distributable to anyone.** Works for anyone who clones it, on Linux, macOS or Windows, with git and
+  Python 3.11+ (uv only for tools that declare dependencies). No personal paths, accounts or machine facts
+  anywhere in the repo. No required private tools. Stdlib Python only in grimoire's own code. README,
+  SETUP.md, this file, the skill and `-h` are enough to use and maintain it without asking anyone.
+- **The agents shape the vault.** No preset shelves and no seeded content: everything comes from real work
+  and training sessions with a user. Shelves are flat folders, opened by agents with their first entry, kept
+  few and broad (the skill says how). Here we fix sprawl by merging and by sharpening the skill, never by
+  imposing a fixed layout.
+- **Personal memory is private and local only** (`~/.local/share/grimoire-me`), never pushed. The shared
+  vault holds only general knowledge, tools and assets: nothing about one person.
+- **Small files in git, big ones local.** `inscribe` refuses files over 5 MB. Tools make or download their
+  big outputs and model weights locally (`GRIMOIRE_CACHE`).
+- **Trust the group, show changes.** Agents push straight to main. `grim run` shows the diff of a tool
+  that someone else changed since this user last ran it, and waits for `--ok`.
 
-The vault's truth is the git remote (GitHub), never a local folder. The tools don't read this checkout's
-`vault/`: they keep a private clone (`~/.local/share/grimoire`, `%LOCALAPPDATA%\grimoire` on Windows,
-`GRIMOIRE_HOME` to move it), `grim` pulls it at most once a minute, and `inscribe` pulls before every write
-and pushes after it. A push that fails (offline, race, no access) stays committed in the clone and goes up
-on the next run; nothing is dropped. Upstream is `GRIMOIRE_REMOTE`, else this repo's `origin`. Keep it so:
-- Any new read or write path goes through `grim.sync()` / `grim.push()`; nothing writes the vault in place.
-- In a maintenance session, `git pull` before touching `vault/` here: agents push to it all the time.
-- `GRIMOIRE_VAULT=<folder>` is the only unsynced mode (tests, offline experiments).
-- Someone without push access to this repo uses their own fork: clone the fork, or set `GRIMOIRE_REMOTE`.
+## Layout
+```
+.claude-plugin/   plugin.json + marketplace.json (the repo is its own marketplace)
+hooks/hooks.json  SessionStart → grim hook start, UserPromptSubmit → grim hook prompt
+bin/              grim, inscribe (sh) + .cmd twins; Claude Code puts a plugin's bin/ on the agent's PATH
+lib/              grim.py (read, sync, hooks, run), inscribe.py (write); stdlib only
+skills/grimoire/  SKILL.md: what agents are told
+tests/            test_grimoire.py: python3 tests/test_grimoire.py
+vault/            the shared content (upstream; appears with the first entry)
+```
 
-## Distributable to anyone
+Entries: `shelf/name.md` (frontmatter `summary:`, `tags:`, optional `use-when:`), a code file with
+`-- summary:` / `-- tags:` header lines, or a folder `shelf/name/` with `ENTRY.md` plus its files (tools,
+assets). A vault "skill" is an entry with `use-when:`: the prompt hook surfaces it, nothing gets installed.
 
-The project must always work for anyone who clones it, on any machine, with nothing but git and Python 3.11+.
-Every change keeps it that way:
-- No paths, usernames, accounts or machine facts from one person's setup in code, docs, the skill or the
-  vault. Paths are relative to the repo (`tools/` finds `vault/` by itself) or come from env vars.
-- No dependency on anyone's private tools or other projects. A tool may be mentioned as optional
-  ("if X is installed"), never required.
-- Stdlib Python only; `tools/install.sh` / `tools/install.bat` stay the one setup step, and touch only
-  user-level paths.
-- The vault holds general Roblox knowledge, never one person's preferences, projects or private notes:
-  those belong in that person's own memory or project notes.
-- The layout stays self-explanatory: README.md, this file, the skill and `grim -h` / `inscribe -h` are enough to use
-  and maintain it without asking anyone.
+## Releasing a change
+Bump `version` in `.claude-plugin/plugin.json`, commit, push, then on each machine
+`claude plugin marketplace update grimoire && claude plugin update grimoire@grimoire` and restart sessions.
+Run the tests first. `claude plugin validate .` checks the manifest.
 
-Upkeep: file `vault/inbox/jots.md` lines into shelves, merge overlapping entries, run `inscribe check`.
-If agents sprawl into many thin shelves, merge them (move files, fix `[[links]]`, `inscribe check`) and
-sharpen the shelf guidance in the skill rather than imposing a fixed layout.
+## Upkeep
+File `inbox` jots into shelves, merge overlapping entries and thin shelves, `inscribe check`.

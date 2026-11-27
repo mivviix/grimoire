@@ -1,0 +1,12 @@
+#!/bin/sh
+# inscribe: runs lib/inscribe.py with the first Python 3 found, in UTF-8 mode. Claude Code puts this folder on PATH.
+lib="$(dirname "$0")/../lib/inscribe.py"
+case "$OS" in Windows_NT) order="py python python3" ;; *) order="python3 python" ;; esac
+for py in $order; do
+  if command -v "$py" >/dev/null 2>&1; then
+    [ "$py" = py ] && exec py -3 -X utf8 -I "$lib" "$@"
+    exec "$py" -X utf8 -I "$lib" "$@"
+  fi
+done
+echo "grimoire: Python 3.11+ not found" >&2
+exit 1

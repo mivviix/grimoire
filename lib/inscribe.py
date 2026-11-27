@@ -1,21 +1,25 @@
-#!/usr/bin/python3 -I
-"""inscribe: add to the grimoire while you work. Body text always comes from stdin.
+"""inscribe: add to the grimoire while you work. Body text comes from stdin.
 
   inscribe new SHELF/NAME -s "SUMMARY" [-t tag,tag]   a new entry. NAME.md for prose (body starts with '# Title'),
                                                      NAME.luau / .lua / .py for a drop-in code file
+      [--use-when "SITUATION"]                       ...makes it a skill: the hooks offer it when that comes up
       [--new-shelf "WHAT IT HOLDS"]                  ...opening a new shelf for it when no existing one fits
+  inscribe put SHELF/NAME PATH... [-s "SUMMARY"]      a folder entry (a tool with main.py, an asset set): copy in
+      [-t ...] [--use-when ...] [--new-shelf ...]    files or folders; stdin (optional) becomes its ENTRY.md body
   inscribe add NAME [-s HEADING]                     append to an entry, or to the end of one of its sections
   inscribe replace NAME OLD NEW                      replace exact text that occurs once (NEW "" deletes it)
-  inscribe meta NAME [-s "SUMMARY"] [-t tag,tag]     change an entry's summary or tags
+  inscribe meta NAME [-s "SUMMARY"] [-t tag,tag] [--use-when ...]   change an entry's summary, tags or use-when
   inscribe jot "TEXT"                                one dated line in inbox/jots, for a find you have no time to file
-  inscribe check                                     lint: summaries, broken [[links]], oversized entries
+  inscribe me "TEXT"                                 a private note about the user: this machine only, never pushed
+  inscribe check                                     lint: summaries, broken [[links]], oversized entries and files
 
 The agent shapes the vault: there are no preset shelves. Open one only when no existing shelf fits.
 Every write pulls the upstream vault first, then is committed and pushed, so every agent shares one vault.
-Read with `grim`.
+Files over 5 MB are refused: keep big things local and let a tool make or download them. Read with `grim`.
 """
 import datetime
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -69,20 +73,13 @@ def commit(path, msg, *extra):
         grim.push()
 
 
-def frontmatter(summary, tags):
-    return f"---\nsummary: {summary}\ntags: {', '.join(tags)}\n---\n"
+def frontmatter(summary, tags, use=""):
+    return f"---\nsummary: {summary}\ntags: {', '.join(tags)}\n" + (f"use-when: {use}\n" if use else "") + "---\n"
 
 
-def tag_list(t):
-    return [x.strip().lower() for x in (t or "").split(",") if x.strip()]
-
-
-def cmd_new(args):
-    summary, tags, shelf_about = opt(args, "-s"), tag_list(opt(args, "-t")), opt(args, "--new-shelf")
-    if len(args) != 1 or summary is None:
-        die('usage: inscribe new SHELF/NAME -s "SUMMARY" [-t tags] <<EOF ... EOF')
-    check_summary(summary)
-    parts = args[0].strip("/").split("/")
+def target(spec, shelf_about):
+    """Check SHELF/NAME (and a --new-shelf) -> (shelf, fname, about path)."""
+    parts = spec.strip("/").split("/")
     if len(parts) != 2:
         die("name is SHELF/NAME (shelves are flat, no subfolders)")
     shelf, fname = parts
@@ -94,8 +91,31 @@ def cmd_new(args):
             die(f"bad shelf name '{shelf}': lowercase-kebab-case")
         check_summary(shelf_about)
     elif not (VAULT / shelf).is_dir() or shelf.startswith(("_", ".")):
-        die(f"no shelf '{shelf}'. Shelves: " + ", ".join(s.name for s in grim.shelves())
+        die(f"no shelf '{shelf}'. Shelves: " + (", ".join(s.name for s in grim.shelves()) or "none yet")
             + '. If none fits, add --new-shelf "what the shelf holds"')
+    return shelf, fname, about
+
+
+def open_shelf(about, shelf_about):
+    if shelf_about is not None:
+        about.parent.mkdir(parents=True)
+        about.write_text(shelf_about.strip() + "\n")
+        return [about]
+    return []
+
+
+def tag_list(t):
+    return [x.strip().lower() for x in (t or "").split(",") if x.strip()]
+
+
+def cmd_new(args):
+    summary, tags, shelf_about = opt(args, "-s"), tag_list(opt(args, "-t")), opt(args, "--new-shelf")
+    use = opt(args, "--use-when") or ""
+    if len(args) != 1 or summary is None:
+        die('usage: inscribe new SHELF/NAME -s "SUMMARY" [-t tags] <<EOF ... EOF')
+    check_summary(summary)
+    check_summary(use or None)
+    shelf, fname, about = target(args[0], shelf_about)
     stem, suffix = (fname.rsplit(".", 1) + [""])[:2]
     suffix = "." + suffix if suffix else ".md"
     if suffix != ".md" and suffix not in grim.CODE:
@@ -103,25 +123,77 @@ def cmd_new(args):
     if not (NAME if suffix == ".md" else CODE_NAME).match(stem):
         die(f"bad name '{stem}': " + ("lowercase-kebab-case" if suffix == ".md" else "letters, digits, - or _"))
     path = VAULT / shelf / (stem + suffix)
-    if path.exists():
+    if path.exists() or (VAULT / shelf / stem).is_dir():
         die(f"{shelf}/{path.name} exists; use `inscribe add` or `replace`")
     clash = [e["name"] for e in grim.entries() if Path(e["name"]).name.rsplit(".", 1)[0] == stem]
     if clash:
         print(f"note: '{stem}' also names {', '.join(clash)}; links to it must use the shelf/ form")
     body = stdin_body()
-    if shelf_about is not None:
-        about.parent.mkdir(parents=True)
-        about.write_text(shelf_about.strip() + "\n")
+    extra = open_shelf(about, shelf_about)
     if suffix == ".md":
         if not body.lstrip().startswith("# "):
             body = f"# {stem.replace('-', ' ').capitalize()}\n\n{body}"
-        text = frontmatter(summary, tags) + "\n" + body
+        text = frontmatter(summary, tags, use) + "\n" + body
     else:
         c = grim.CODE[suffix]
-        text = f"{c} summary: {summary}\n{c} tags: {', '.join(tags)}\n" + body
+        text = f"{c} summary: {summary}\n{c} tags: {', '.join(tags)}\n" + (f"{c} use-when: {use}\n" if use else "") + body
     path.write_text(text)
-    commit(path, f"new {shelf}/{path.name}" + (" (new shelf)" if shelf_about is not None else ""),
-           *([about] if shelf_about is not None else []))
+    commit(path, f"new {shelf}/{path.name}" + (" (new shelf)" if extra else ""), *extra)
+
+
+SKIP = {".git", "__pycache__", ".venv", "node_modules", ".DS_Store"}
+
+
+def cmd_put(args):
+    summary, tags, shelf_about = opt(args, "-s"), opt(args, "-t"), opt(args, "--new-shelf")
+    use = opt(args, "--use-when")
+    if len(args) < 1:
+        die('usage: inscribe put SHELF/NAME PATH... [-s "SUMMARY"] [-t tags] [--use-when ...]')
+    check_summary(summary)
+    check_summary(use)
+    shelf, name, about = target(args[0], shelf_about)
+    if not NAME.match(name):
+        die(f"bad name '{name}': lowercase-kebab-case")
+    folder = VAULT / shelf / name
+    if (VAULT / shelf / (name + ".md")).exists():
+        die(f"{shelf}/{name}.md is a plain entry; pick another name for the folder")
+    entry = folder / grim.FOLDER
+    if not entry.exists() and summary is None:
+        die(f"{shelf}/{name} is new: give it -s \"what it is; when to use it\"")
+    # collect (source, relative destination) and check every size before copying anything
+    todo = []
+    for src in map(Path, args[1:]):
+        if not src.exists():
+            die(f"no such file or folder: {src}")
+        found = [src] if src.is_file() else [p for p in sorted(src.rglob("*")) if p.is_file()
+                                              and not SKIP & set(p.relative_to(src).parts)]
+        for f in found:
+            todo.append((f, Path(f.name) if src.is_file() else f.relative_to(src)))
+    big = [f"{f} ({f.stat().st_size // 1048576} MB)" for f, _ in todo if f.stat().st_size > grim.MAX_FILE]
+    if big:
+        die("too big for the shared vault (5 MB max): " + ", ".join(big)
+            + ". Keep it local; let the tool make or download it into $GRIMOIRE_CACHE.")
+    if any(rel.as_posix() == grim.FOLDER for _, rel in todo):
+        die(f"{grim.FOLDER} is written by inscribe; give its text on stdin instead")
+    body = "" if sys.stdin.isatty() else sys.stdin.read().strip("\n")
+    extra = open_shelf(about, shelf_about)
+    folder.mkdir(parents=True, exist_ok=True)
+    for f, rel in todo:
+        (folder / rel).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(f, folder / rel)
+    if entry.exists():
+        e = grim.parse(entry, folder)
+        summary, use = summary or e["summary"], use if use is not None else e["use"]
+        tag_l = tag_list(tags) if tags is not None else e["tags"]
+        body = body or e["body"].strip("\n")
+    else:
+        tag_l = tag_list(tags)
+        run = "\n\nRun: `grim run " + f"{shelf}/{name}" + " [ARGS]`" if (folder / "main.py").exists() else ""
+        body = body or f"# {name.replace('-', ' ').capitalize()}{run}"
+    if not body.lstrip().startswith("# "):
+        body = f"# {name.replace('-', ' ').capitalize()}\n\n{body}"
+    entry.write_text(frontmatter(summary, tag_l, use or "") + "\n" + body + "\n")
+    commit(folder, f"put {shelf}/{name} ({len(todo)} files)" + (" (new shelf)" if extra else ""), *extra)
 
 
 def cmd_add(args):
@@ -165,19 +237,21 @@ def cmd_replace(args):
 
 
 def cmd_meta(args):
-    summary, tags = opt(args, "-s"), opt(args, "-t")
-    if len(args) != 1 or (summary is None and tags is None):
-        die('usage: inscribe meta NAME [-s "SUMMARY"] [-t tag,tag]')
+    summary, tags, use = opt(args, "-s"), opt(args, "-t"), opt(args, "--use-when")
+    if len(args) != 1 or (summary is None and tags is None and use is None):
+        die('usage: inscribe meta NAME [-s "SUMMARY"] [-t tag,tag] [--use-when "SITUATION" ("" clears it)]')
     check_summary(summary)
     e = grim.resolve(args[0])
     summary, tags = summary or e["summary"], tag_list(tags) if tags is not None else e["tags"]
+    use = use if use is not None else e["use"]
     text = e["path"].read_text()
     if e["path"].suffix == ".md":
-        text = frontmatter(summary, tags) + "\n" + e["body"]
+        text = frontmatter(summary, tags, use) + "\n" + e["body"]
     else:
         c = grim.CODE[e["path"].suffix]
-        rest = [l for l in text.splitlines(keepends=True) if not re.match(rf"^\s*{re.escape(c)}\s*(summary|tags):", l)]
-        text = f"{c} summary: {summary}\n{c} tags: {', '.join(tags)}\n" + "".join(rest)
+        rest = [l for l in text.splitlines(keepends=True) if not grim.META.match(l)]
+        text = (f"{c} summary: {summary}\n{c} tags: {', '.join(tags)}\n" + (f"{c} use-when: {use}\n" if use else "")
+                + "".join(rest))
     e["path"].write_text(text)
     commit(e["path"], f"meta {e['name']}")
 
@@ -197,6 +271,17 @@ def cmd_jot(args):
     commit(path, "jot", about)
 
 
+def cmd_me(args):
+    if not args:
+        die('usage: inscribe me "TEXT"')
+    if grim.setting("me", "on") == "off":
+        die("personal memory is off on this machine (`grim config me on` to use it)")
+    grim.ME.parent.mkdir(parents=True, exist_ok=True)
+    with grim.ME.open("a") as f:  # never in the clone, never committed
+        f.write(f"- [{datetime.date.today()}] {' '.join(args).strip()}\n")
+    print(f"noted privately: {grim.ME}")
+
+
 def cmd_check(_args):
     all_, bad = grim.entries(), []
     names = {e["name"] for e in all_} | {Path(e["name"]).name for e in all_}
@@ -209,9 +294,15 @@ def cmd_check(_args):
         n = e["body"].count("\n")
         if n > BIG:
             bad.append(f"{e['name']}: {n} lines, split it")
+        for f in grim.files(e):
+            if f.stat().st_size > grim.MAX_FILE:
+                bad.append(f"{e['name']}: {f.name} is over 5 MB, keep it local")
     for s in grim.shelves():
         if not (s / "_about.md").exists():
             bad.append(f"shelf {s.name}: no _about.md")
+        for d in s.iterdir():
+            if d.is_dir() and not d.name.startswith((".", "_")) and not (d / grim.FOLDER).is_file():
+                bad.append(f"{s.name}/{d.name}/: folder without {grim.FOLDER}")
     jots = VAULT / "inbox" / "jots.md"
     pending = jots.read_text().count("\n- [") if jots.exists() else 0
     print("\n".join(bad) or f"ok: {len(all_)} entries")
@@ -221,9 +312,10 @@ def cmd_check(_args):
 
 
 def main(argv):
-    if argv[:1] not in ([], ["-h"], ["--help"], ["help"]):
+    if argv[:1] not in ([], ["-h"], ["--help"], ["help"], ["me"]):
         grim.sync(force=True)  # write on top of the latest upstream
-    cmds = {"new": cmd_new, "add": cmd_add, "replace": cmd_replace, "meta": cmd_meta, "jot": cmd_jot, "check": cmd_check}
+    cmds = {"new": cmd_new, "put": cmd_put, "add": cmd_add, "replace": cmd_replace, "meta": cmd_meta,
+            "jot": cmd_jot, "me": cmd_me, "check": cmd_check}
     if not argv or argv[0] not in cmds:
         print(__doc__.strip())
         sys.exit(0 if argv and argv[0] in ("-h", "--help", "help") else 1)

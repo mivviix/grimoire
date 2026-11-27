@@ -1,0 +1,8 @@
+{
+  "name": "grimoire",
+  "description": "grimoire: a shared, agent-built vault for Claude Code.",
+  "owner": { "name": "grimoire" },
+  "plugins": [
+    { "name": "grimoire", "source": "./" }
+  ]
+}
