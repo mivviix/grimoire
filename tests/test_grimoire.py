@@ -8,7 +8,8 @@ from pathlib import Path
 
 LIB = Path(__file__).resolve().parent.parent / "lib"
 TMP = tempfile.TemporaryDirectory()
-BASE = {k: v for k, v in os.environ.items() if not k.startswith(("GRIMOIRE_", "GIT_"))} | {"XDG_CACHE_HOME": f"{TMP.name}/cache"}
+BASE = {k: v for k, v in os.environ.items() if not k.startswith(("GRIMOIRE_", "GIT_"))} | {"XDG_CACHE_HOME": f"{TMP.name}/cache",
+                                                                                         "CLAUDE_CONFIG_DIR": f"{TMP.name}/claude"}
 
 
 def run(tool, *args, stdin=None, ok=True, env=None, code=None):
@@ -51,8 +52,7 @@ assert "engine       1" in run("grim") and "inbox" in run("grim")
 assert "net" in run("grim", "show", "ownership")                               # tags lowercased
 
 # skills, folder entries, tools
-run("inscribe", "new", "engine/slash-vfx", "-s", "how to make a sword slash effect", "--use-when",
-    "making a slash or swing effect", stdin="# Slash\n\nsteps\n")
+run("inscribe", "new", "engine/slash-vfx", "-s", "how to make a sword slash effect", stdin="# Slash\n\nsteps\n")
 src = Path(f"{TMP.name}/src")
 (src / "data").mkdir(parents=True)
 (src / "main.py").write_text("import os, sys\nprint('cache', os.environ['GRIMOIRE_CACHE'], *sys.argv[1:])\n")
@@ -70,6 +70,27 @@ big.write_bytes(b"0" * (5 * 1024 * 1024 + 1))
 assert "5 MB" in run("inscribe", "put", "tools/echo", str(big), ok=False)
 assert not Path(f"{vault}/tools/echo/big.bin").exists()
 run("grim", "run", "ownership", ok=False)                                     # not a tool
+
+# skills: SKILL.md folders, listed at session start, read whole, never linked anywhere
+ref = Path(f"{TMP.name}/ref.md")
+ref.write_text("long reference\n")
+run("inscribe", "skill", "engine/rig-check", stdin="steps\n", ok=False)              # new skill needs -d
+run("inscribe", "skill", "engine/rig-check", "-d", "x\ny", stdin="steps\n", ok=False)  # one line
+run("inscribe", "skill", "engine/rig-check", str(ref), "-d", "Check an R15 rig before animating it",
+    stdin="# Rig check\n\n" + "\n".join(f"- step {i}" for i in range(80)) + "\n")
+skill_md = Path(f"{vault}/engine/rig-check/SKILL.md").read_text()
+assert skill_md.startswith("---\nname: rig-check\ndescription: Check an R15 rig before animating it\n---\n"), skill_md
+assert "rig-check — Check an R15 rig" in run("grim", "skills")
+out = run("grim", "show", "rig-check")
+assert "- step 79" in out and "ref.md" in out, out                             # whole, plus its files
+run("inscribe", "skill", "engine/rig-check", "-d", "Check a rig (R15 or R6) before animating it")  # update
+assert "step 79" in run("grim", "show", "rig-check")                           # body kept
+run("inscribe", "meta", "rig-check", "-t", "x", ok=False)                      # skills have no tags
+run("inscribe", "put", "engine/rig-check", str(ref), "-s", "x", ok=False)      # not a folder entry
+start = hook("start", sid="sk")
+assert "rig-check — Check a rig (R15 or R6)" in start, start
+assert "rig-check" not in hook("prompt", "check the rig before animating", sid="sk")  # listed already
+assert not Path(f"{TMP.name}/claude").exists()
 
 # hooks: prompt matching, seen-set, start primer, private notes
 out = hook("prompt", "I'm making a slash effect for the sword")
@@ -120,6 +141,10 @@ assert "from a" in out and "from b" in out, out
 hook("start", env=a)
 run("inscribe", "add", "streaming", stdin="- a again\n", env=a)
 assert "New or changed" not in hook("start", env=a)                          # own edits aren't news
+
+run("inscribe", "skill", "engine/net-debug", "-d", "Debug network ownership glitches", stdin="steps\n", env=a)
+os.utime(f"{tmp}/b/.git/grimoire-pulled", (0, 0))
+assert "net-debug — Debug network ownership" in hook("start", env=b)          # the other agent sees the skill
 
 # trust: b must read a's tool before running it, and again after a changes it
 run("inscribe", "put", "tools/echo", str(src / "main.py"), "-s", "echo", "--new-shelf", "tools", env=a)

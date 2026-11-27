@@ -7,6 +7,7 @@
   grim path NAME                absolute path of an entry (a file, or a tool/asset folder)
   grim run NAME [ARGS...]       run a tool entry (its main.py; uv for one that declares dependencies)
       [--ok]                    ...after reading changes others made to it since you last ran it
+  grim skills                   the vault's skills: name and description (`grim show NAME` reads one)
   grim me                       your private notes (on this machine only, never pushed)
   grim init URL                 first-time setup: clone the shared vault from its git URL
   grim config [me on|off]       show or change settings
@@ -51,10 +52,13 @@ SHOW_MAX = 120  # lines; a longer entry prints its outline unless --full or -s
 MAX_FILE = 5 * 1024 * 1024  # bigger files stay local: tools make or download them
 CODE = {".luau": "--", ".lua": "--", ".py": "#"}  # code entries carry `-- summary:` / `-- tags:` header lines
 FOLDER = "ENTRY.md"  # a folder entry (tool, asset set) describes itself here
+SKILL = "SKILL.md"  # ...or is a skill: name + description frontmatter, listed at session start, read when needed
+SKILL_NAME = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 LINK = re.compile(r"\[\[([^\[\]|#\n]+)(?:[|#][^\]\n]*)?\]\]")  # single-line only: Luau's --[[ ]] isn't a link
 HEAD = re.compile(r"^(#{1,6})\s+(.*)")
-META = re.compile(r"^\s*(?:--|#)\s*(summary|tags|use-when):\s*(.*)")
+META = re.compile(r"^\s*(?:--|#)\s*(summary|tags):\s*(.*)")
 START_BUDGET, PROMPT_BUDGET = 2500, 1500  # chars the hooks may add to the context
+SKILL_BUDGET = 1600  # of START_BUDGET, for the skill list
 
 
 def die(msg):
@@ -76,7 +80,7 @@ def load(name, default):
 
 
 def save(name, data):
-    STATE.mkdir(parents=True, exist_ok=True)
+    (STATE / name).parent.mkdir(parents=True, exist_ok=True)
     (STATE / name).write_text(json.dumps(data, indent=1))
 
 
@@ -158,7 +162,7 @@ def about(shelf):
 
 
 def parse(path, folder=None):
-    """-> dict(name, shelf, path, dir, summary, tags, use, body). Body excludes frontmatter / header lines."""
+    """-> dict(name, shelf, path, dir, skill, summary, tags, body). Body excludes frontmatter / header lines."""
     text = path.read_text(errors="replace")
     meta, body = {}, text
     if path.suffix == ".md":
@@ -183,9 +187,9 @@ def parse(path, folder=None):
         "shelf": rel.parts[0],
         "path": path,
         "dir": folder,
-        "summary": meta.get("summary", ""),
+        "skill": meta.get("name", "") if path.name == SKILL else "",
+        "summary": meta.get("summary") or meta.get("description", ""),
         "tags": [t.strip() for t in meta.get("tags", "").strip("[]").split(",") if t.strip()],
-        "use": meta.get("use-when", ""),
         "body": body,
     }
 
@@ -198,7 +202,9 @@ def entries(shelf=None):
         for p in sorted(s.iterdir()):
             if p.name.startswith((".", "_")):
                 continue
-            if p.is_dir() and (p / FOLDER).is_file():
+            if p.is_dir() and (p / SKILL).is_file():
+                out.append(parse(p / SKILL, p))
+            elif p.is_dir() and (p / FOLDER).is_file():
                 out.append(parse(p / FOLDER, p))
             elif p.is_file() and (p.suffix == ".md" or p.suffix in CODE):
                 out.append(parse(p))
@@ -219,7 +225,8 @@ def resolve(q, all_=None):
 
 
 def line(e):
-    return f"{e['name']}{'/' if e['dir'] else ''} — {e['summary'] or '(no summary)'}"
+    kind = " [skill]" if e["skill"] else "/" if e["dir"] else ""
+    return f"{e['name']}{kind} — {e['summary'] or '(no summary)'}"
 
 
 def files(e):
@@ -227,9 +234,9 @@ def files(e):
 
 
 def score(terms, e, body=True):
-    name, tags, summ, use = e["name"].lower(), " ".join(e["tags"]).lower(), e["summary"].lower(), e["use"].lower()
+    name, tags, summ = e["name"].lower(), " ".join(e["tags"]).lower(), e["summary"].lower()
     text = e["body"].lower() if body else ""
-    return [5 * (t in name) + 4 * (t in tags) + 3 * (t in summ) + 3 * (t in use) + min(text.count(t), 5) for t in terms]
+    return [5 * (t in name) + 4 * (t in tags) + 3 * (t in summ) + min(text.count(t), 5) for t in terms]
 
 
 # --- commands -------------------------------------------------------------------
@@ -286,8 +293,6 @@ def cmd_show(name, section=None, full=False):
     e = resolve(name)
     lines = e["body"].rstrip("\n").splitlines()
     print(f"== {line(e)}" + (f"  [tags: {', '.join(e['tags'])}]" if e["tags"] else ""))
-    if e["use"]:
-        print(f"use when: {e['use']}")
     if section:
         heads = [(i, len(m[1]), m[2]) for i, l in enumerate(lines) if (m := HEAD.match(l))]
         hit = next((h for h in heads if section.lower() in h[2].lower()), None)
@@ -298,7 +303,7 @@ def cmd_show(name, section=None, full=False):
         i, lvl, _ = hit
         end = next((j for j, l2, _ in heads if j > i and l2 <= lvl), len(lines))
         shown = "\n".join(lines[i:end])
-    elif full or len(lines) <= SHOW_MAX:
+    elif full or e["skill"] or len(lines) <= SHOW_MAX:  # a skill is read whole, like a Claude skill
         shown = "\n".join(lines)
     elif e["path"].suffix == ".md":
         print(f"({len(lines)} lines, outline only; `grim show {e['name']} -s HEADING` or --full)")
@@ -309,8 +314,8 @@ def cmd_show(name, section=None, full=False):
     if shown:
         print(shown)
     if e["dir"]:
-        fs = [p for p in files(e) if p.name != FOLDER]
-        print(f"-- files in {e['dir']}:" if fs else "-- no files besides ENTRY.md")
+        fs = [p for p in files(e) if p.relative_to(e["dir"]).as_posix() not in (FOLDER, SKILL)]
+        print(f"-- files in {e['dir']}:" if fs else f"-- no other files in {e['dir']}")
         for p in fs[:30]:
             print(f"   {p.relative_to(e['dir']).as_posix()}  ({p.stat().st_size // 1024} KB)")
         if len(fs) > 30:
@@ -362,6 +367,15 @@ def cmd_run(args):
     sys.exit(subprocess.run(cmd, env=env).returncode)
 
 
+def cmd_skills():
+    sk = [e for e in entries() if e["skill"]]
+    if not sk:
+        return print("no skills in the vault yet (make one with `inscribe skill`)")
+    print(f"{len(sk)} vault skills (`grim show NAME` reads one in full):")
+    for e in sk:
+        print(f"  {e['name']} — {e['summary']}")
+
+
 def cmd_me():
     if setting("me", "on") == "off":
         return print("personal memory is off here (`grim config me on` to use it)")
@@ -405,6 +419,10 @@ def hook_input():
         return {}
 
 
+def session_id(hook):
+    return re.sub(r"[^A-Za-z0-9_-]", "", str(hook.get("session_id") or "none"))[:80]
+
+
 def changed_by_others(since):
     """Entry names that others added or changed upstream after commit `since`."""
     out = git("log", "--format=@@%ae", "--name-only", f"{since}..HEAD", "--", "vault").stdout
@@ -421,16 +439,27 @@ def changed_by_others(since):
 
 
 def hook_start():
-    hook_input()
+    hook = hook_input()
     if not ready():
         return print("# grimoire\nThe grimoire plugin is installed but has no vault on this machine. When it fits, ask the "
                      "user for the shared vault's git URL and run `grim init URL` (see the plugin's SETUP.md).")
     sync()
     all_ = entries()
     by = {e["name"]: e for e in all_}
-    out = [f"# grimoire: the shared vault ({len(all_)} entries)",
+    skills = [e for e in all_ if e["skill"]]
+    out = [f"# grimoire: the shared vault ({len(all_)} entries, {len(skills)} of them skills)",
            "Look things up before you build (`grim find WORDS`, `grim show NAME`, `grim run NAME`) and file what you "
            "learn or make with `inscribe` (read the grimoire skill first)."]
+    listed = []
+    if skills:
+        out.append("Vault skills (a separate set from your own skills, used the same way: when a description fits the "
+                   "task, read the whole skill with `grim show NAME` before you start):")
+        for e in skills:
+            if len("\n".join(out)) + len(line(e)) > SKILL_BUDGET:
+                out.append(f"- ... {len(skills) - len(listed)} more: `grim skills`")
+                break
+            out.append(f"- {e['name']} — {e['summary']}")
+            listed.append(e["name"])
     if shelves():
         out.append("Shelves: " + "; ".join(f"{s.name} ({sum(e['shelf'] == s.name for e in all_)}) {about(s)}" for s in shelves()))
     state = load("state.json", {})
@@ -450,6 +479,8 @@ def hook_start():
             out.append("About the user (private, this machine only; add with `inscribe me \"...\"`):")
             out.append(notes if len(notes) <= room else notes[:room].rsplit("\n", 1)[0] + "\n- ... (`grim me` for all)")
     print("\n".join(out)[:START_BUDGET])
+    if listed:  # the prompt hook then only brings up skills this list didn't show
+        save(f"seen/{session_id(hook)}.json", listed)
 
 
 STOP = set("""a about after again all also and any are as at be because been before being but by can could did do
@@ -463,19 +494,20 @@ def hook_prompt():
     if not ready():
         return
     sync()
+    all_ = entries()
     words = re.findall(r"[a-z0-9][a-z0-9_-]{2,}", (hook.get("prompt") or "").lower())
     terms = list(dict.fromkeys(w for w in words if w not in STOP))
     if not terms:
         return
-    sid = re.sub(r"[^A-Za-z0-9_-]", "", str(hook.get("session_id") or "none"))[:80]
+    sid = session_id(hook)
     seen_dir = STATE / "seen"
     seen = set(load(f"seen/{sid}.json", []))
     picks = []
-    for e in entries():
+    for e in all_:
         if e["name"] in seen:
             continue
         per = score(terms, e, body=False)
-        if sum(x > 0 for x in per) >= 2 or (e["use"] and sum(per) >= 6):
+        if sum(x > 0 for x in per) >= 2:
             picks.append((sum(per), e))
     picks = [e for _, e in sorted(picks, key=lambda p: -p[0])[:3]]
     if not picks:
@@ -501,6 +533,9 @@ def main(argv):
         return {"start": hook_start, "prompt": hook_prompt}.get(rest[0] if rest else "", lambda: die("usage: grim hook start|prompt"))()
     if cmd == "me":
         return cmd_me()
+    if cmd == "skills":
+        sync()
+        return cmd_skills()
     sync()
     if not cmd:
         cmd_map()

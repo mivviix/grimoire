@@ -7,8 +7,8 @@ description: The grimoire is a shared vault that agents build for themselves - l
 
 A library you and other agents build while working, shared through git: what one agent files, every agent on
 the same vault gets. Read it through `grim` so you only load the lines you need; never `cat` or glob a vault
-folder yourself. The hooks already show you the shelves and what's new at session start, and relevant entries
-with each message. If `grim` or `inscribe` warn that they couldn't pull or push, carry on: they retry.
+folder yourself. The hooks already show you the shelves, the vault's skills and what's new at session start,
+and relevant entries with each message. If `grim` or `inscribe` warn that they couldn't pull or push, carry on: they retry.
 
 ## Read: `grim`
 - `grim find WORDS...`: best matches with summaries. Start any task here with 2-4 words from it.
@@ -16,7 +16,12 @@ with each message. If `grim` or `inscribe` warn that they couldn't pull or push,
   (tool, asset set) also lists its files.
 - `grim run NAME [ARGS]`: run a tool entry. If someone else changed it since you last ran it, grim prints the
   diff and stops: read it, and only if it does what it claims, run again with `--ok`. Never `--ok` blindly.
+- `grim skills`: every vault skill's name and description.
 - `grim`, `grim ls SHELF`, `grim path NAME` (copy a snippet or asset into a project), `grim me`.
+
+**Vault skills** work like your own skills but are a separate set: you see only their names and descriptions
+(at session start, or `grim skills`). When one fits the task, `grim show NAME` reads the whole skill (and lists
+its files); then follow it.
 
 What the vault says was learned the hard way; prefer it over your memory, unless the official docs disagree
 (then fix the entry). `inbox` is unverified.
@@ -29,12 +34,14 @@ Not: guesses, what the docs say plainly, or anything about one person or project
 
 - Prose or a code file: `inscribe new SHELF/NAME -s "what it is; when to read it" -t tag,tag <<'EOF' ... EOF`
   (`NAME.md` kebab-case, starts with `# Title`; code is `Name.luau` / `.lua` / `.py`).
-- A **skill** (a how-to the agent should reach for in a situation): add `--use-when "making X / when Y"`.
-  The hooks offer it whenever that comes up; nothing needs installing.
+- A **skill** (a procedure to follow when a situation comes up):
+  `inscribe skill SHELF/NAME [FILES/DIRS...] -d "what it does; when to use it" <<'EOF' ... EOF`. The body is
+  the full instructions; reference files or scripts go beside it. The description is all an agent sees until
+  it opens the skill, so name the situations and the words it would have in mind. Re-run to update it.
 - A **tool**: build it in a scratch folder with a `main.py` entry point (stdlib, or PEP 723 inline
   `# /// script` dependencies, which run through uv). It takes arguments, writes outputs to the current folder
   or a path it is given, and puts downloads (model weights etc.) in `$GRIMOIRE_CACHE`. Then
-  `inscribe put SHELF/NAME DIR -s "..." --use-when "..." <<'EOF'` with an ENTRY.md body that says how to run it,
+  `inscribe put SHELF/NAME DIR -s "..." <<'EOF'` with an ENTRY.md body that says how to run it,
   what it needs (GPU, uv, disk) and what it outputs. Re-run `put` to update it.
 - **Assets** (a texture, a model, a sound under 5 MB): `inscribe put SHELF/NAME FILES...`. Bigger files stay
   local: share the tool or recipe that makes them instead.
@@ -48,7 +55,8 @@ Keep entries under ~150 lines; split by topic instead.
 ## Training sessions
 When the user wants to teach the vault ("remember this", "feed it this", "make a tool for X"), you are
 building the library with them: turn what they give you into entries, skills and tools in the shapes above,
-test a tool once, and file it. Ask what it should be used for, so the `--use-when` is right.
+test a tool once, and file it. Ask what a skill is for, so its description is right. `/grimoire:train` runs a
+whole training session.
 
 ## The user
 Things about the user (preferences, how they work, their projects) never go in the shared vault: other people

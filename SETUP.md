@@ -23,7 +23,8 @@ asking the user only where it says so. Works the same on Linux, macOS and Window
 6. **Permissions (ask first).** Offer to add `"Bash(grim *)"` and `"Bash(inscribe *)"` to
    `permissions.allow` in `~/.claude/settings.json`, so lookups don't prompt every time.
 7. **Done.** Tell the user to start a new session. Its start should show a short "grimoire" block, and
-   `grim` should print the vault's shelves (or "empty" for a new vault).
+   `grim` should print the vault's shelves (or "empty" for a new vault). To feed the vault what they already
+   know, they can run `/grimoire:train`.
 
 Updating later: `claude plugin marketplace update grimoire && claude plugin update grimoire@grimoire`.
 Removing: `claude plugin uninstall grimoire@grimoire`; the clone and personal memory are in

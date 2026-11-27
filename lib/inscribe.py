@@ -2,13 +2,15 @@
 
   inscribe new SHELF/NAME -s "SUMMARY" [-t tag,tag]   a new entry. NAME.md for prose (body starts with '# Title'),
                                                      NAME.luau / .lua / .py for a drop-in code file
-      [--use-when "SITUATION"]                       ...makes it a skill: the hooks offer it when that comes up
       [--new-shelf "WHAT IT HOLDS"]                  ...opening a new shelf for it when no existing one fits
   inscribe put SHELF/NAME PATH... [-s "SUMMARY"]      a folder entry (a tool with main.py, an asset set): copy in
-      [-t ...] [--use-when ...] [--new-shelf ...]    files or folders; stdin (optional) becomes its ENTRY.md body
+      [-t ...] [--new-shelf ...]                     files or folders; stdin (optional) becomes its ENTRY.md body
+  inscribe skill SHELF/NAME [FILES/DIRS...]          a skill: SKILL.md with name + description (listed to every agent
+      -d "WHAT IT DOES; WHEN TO USE IT"              at session start), stdin = its full instructions, plus any
+      [--new-shelf ...]                              reference files or scripts. Re-run to update it
   inscribe add NAME [-s HEADING]                     append to an entry, or to the end of one of its sections
   inscribe replace NAME OLD NEW                      replace exact text that occurs once (NEW "" deletes it)
-  inscribe meta NAME [-s "SUMMARY"] [-t tag,tag] [--use-when ...]   change an entry's summary, tags or use-when
+  inscribe meta NAME [-s "SUMMARY"] [-t tag,tag]     change an entry's summary or tags (a skill's description: -d)
   inscribe jot "TEXT"                                one dated line in inbox/jots, for a find you have no time to file
   inscribe me "TEXT"                                 a private note about the user: this machine only, never pushed
   inscribe check                                     lint: summaries, broken [[links]], oversized entries and files
@@ -73,8 +75,8 @@ def commit(path, msg, *extra):
         grim.push()
 
 
-def frontmatter(summary, tags, use=""):
-    return f"---\nsummary: {summary}\ntags: {', '.join(tags)}\n" + (f"use-when: {use}\n" if use else "") + "---\n"
+def frontmatter(summary, tags):
+    return f"---\nsummary: {summary}\ntags: {', '.join(tags)}\n---\n"
 
 
 def target(spec, shelf_about):
@@ -110,11 +112,9 @@ def tag_list(t):
 
 def cmd_new(args):
     summary, tags, shelf_about = opt(args, "-s"), tag_list(opt(args, "-t")), opt(args, "--new-shelf")
-    use = opt(args, "--use-when") or ""
     if len(args) != 1 or summary is None:
         die('usage: inscribe new SHELF/NAME -s "SUMMARY" [-t tags] <<EOF ... EOF')
     check_summary(summary)
-    check_summary(use or None)
     shelf, fname, about = target(args[0], shelf_about)
     stem, suffix = (fname.rsplit(".", 1) + [""])[:2]
     suffix = "." + suffix if suffix else ".md"
@@ -133,10 +133,10 @@ def cmd_new(args):
     if suffix == ".md":
         if not body.lstrip().startswith("# "):
             body = f"# {stem.replace('-', ' ').capitalize()}\n\n{body}"
-        text = frontmatter(summary, tags, use) + "\n" + body
+        text = frontmatter(summary, tags) + "\n" + body
     else:
         c = grim.CODE[suffix]
-        text = f"{c} summary: {summary}\n{c} tags: {', '.join(tags)}\n" + (f"{c} use-when: {use}\n" if use else "") + body
+        text = f"{c} summary: {summary}\n{c} tags: {', '.join(tags)}\n" + body
     path.write_text(text)
     commit(path, f"new {shelf}/{path.name}" + (" (new shelf)" if extra else ""), *extra)
 
@@ -145,21 +145,44 @@ SKIP = {".git", "__pycache__", ".venv", "node_modules", ".DS_Store"}
 
 
 def cmd_put(args):
-    summary, tags, shelf_about = opt(args, "-s"), opt(args, "-t"), opt(args, "--new-shelf")
-    use = opt(args, "--use-when")
+    put(args, skill=False)
+
+
+def cmd_skill(args):
+    put(args, skill=True)
+
+
+def check_description(d):
+    if d is not None and (not d.strip() or "\n" in d or len(d) > 500):
+        die("description must be one line, 1-500 chars: what the skill does and when to use it")
+
+
+def put(args, skill):
+    tags, shelf_about = opt(args, "-t"), opt(args, "--new-shelf")
+    summary = (opt(args, "-d") or opt(args, "-s")) if skill else opt(args, "-s")
     if len(args) < 1:
-        die('usage: inscribe put SHELF/NAME PATH... [-s "SUMMARY"] [-t tags] [--use-when ...]')
-    check_summary(summary)
-    check_summary(use)
+        die('usage: inscribe skill SHELF/NAME [FILES/DIRS...] -d "WHAT IT DOES; WHEN TO USE IT" <<EOF ... EOF' if skill
+            else 'usage: inscribe put SHELF/NAME PATH... [-s "SUMMARY"] [-t tags]')
+    if skill and tags is not None:
+        die("skills have no tags: put what they are for in the description")
+    (check_description if skill else check_summary)(summary)
     shelf, name, about = target(args[0], shelf_about)
     if not NAME.match(name):
         die(f"bad name '{name}': lowercase-kebab-case")
     folder = VAULT / shelf / name
     if (VAULT / shelf / (name + ".md")).exists():
         die(f"{shelf}/{name}.md is a plain entry; pick another name for the folder")
-    entry = folder / grim.FOLDER
+    entry, other = (folder / grim.SKILL, folder / grim.FOLDER) if skill else (folder / grim.FOLDER, folder / grim.SKILL)
+    if other.exists():
+        die(f"{shelf}/{name} is a {'skill' if not skill else 'folder entry'}; use `inscribe "
+            f"{'skill' if not skill else 'put'}` for it")
+    if skill and not entry.exists():
+        dup = [e["name"] for e in grim.entries() if e["skill"] == name]
+        if dup:
+            die(f"there is already a skill '{name}' ({dup[0]}); improve that one or pick another name")
     if not entry.exists() and summary is None:
-        die(f"{shelf}/{name} is new: give it -s \"what it is; when to use it\"")
+        die(f"{shelf}/{name} is new: give it " + ('-d "what it does; when to use it"' if skill
+                                                  else '-s "what it is; when to use it"'))
     # collect (source, relative destination) and check every size before copying anything
     todo = []
     for src in map(Path, args[1:]):
@@ -173,9 +196,11 @@ def cmd_put(args):
     if big:
         die("too big for the shared vault (5 MB max): " + ", ".join(big)
             + ". Keep it local; let the tool make or download it into $GRIMOIRE_CACHE.")
-    if any(rel.as_posix() == grim.FOLDER for _, rel in todo):
-        die(f"{grim.FOLDER} is written by inscribe; give its text on stdin instead")
+    if any(rel.as_posix() in (grim.FOLDER, grim.SKILL) for _, rel in todo):
+        die(f"{entry.name} is written by inscribe; give its text on stdin instead")
     body = "" if sys.stdin.isatty() else sys.stdin.read().strip("\n")
+    if skill and not body and not entry.exists():
+        die("a new skill needs its instructions on stdin: inscribe skill ... <<'EOF' ... EOF")
     extra = open_shelf(about, shelf_about)
     folder.mkdir(parents=True, exist_ok=True)
     for f, rel in todo:
@@ -183,7 +208,7 @@ def cmd_put(args):
         shutil.copy2(f, folder / rel)
     if entry.exists():
         e = grim.parse(entry, folder)
-        summary, use = summary or e["summary"], use if use is not None else e["use"]
+        summary = summary or e["summary"]
         tag_l = tag_list(tags) if tags is not None else e["tags"]
         body = body or e["body"].strip("\n")
     else:
@@ -192,8 +217,14 @@ def cmd_put(args):
         body = body or f"# {name.replace('-', ' ').capitalize()}{run}"
     if not body.lstrip().startswith("# "):
         body = f"# {name.replace('-', ' ').capitalize()}\n\n{body}"
-    entry.write_text(frontmatter(summary, tag_l, use or "") + "\n" + body + "\n")
-    commit(folder, f"put {shelf}/{name} ({len(todo)} files)" + (" (new shelf)" if extra else ""), *extra)
+    head = skill_head(name, summary) if skill else frontmatter(summary, tag_l)
+    entry.write_text(head + "\n" + body + "\n")
+    what = "skill" if skill else "put"
+    commit(folder, f"{what} {shelf}/{name} ({len(todo)} files)" + (" (new shelf)" if extra else ""), *extra)
+
+
+def skill_head(name, description):
+    return f"---\nname: {name}\ndescription: {description}\n---\n"
 
 
 def cmd_add(args):
@@ -237,21 +268,25 @@ def cmd_replace(args):
 
 
 def cmd_meta(args):
-    summary, tags, use = opt(args, "-s"), opt(args, "-t"), opt(args, "--use-when")
-    if len(args) != 1 or (summary is None and tags is None and use is None):
-        die('usage: inscribe meta NAME [-s "SUMMARY"] [-t tag,tag] [--use-when "SITUATION" ("" clears it)]')
-    check_summary(summary)
+    summary, tags = opt(args, "-d") or opt(args, "-s"), opt(args, "-t")
+    if len(args) != 1 or (summary is None and tags is None):
+        die('usage: inscribe meta NAME [-s "SUMMARY"] [-t tag,tag]   (a skill: -d "DESCRIPTION")')
     e = grim.resolve(args[0])
+    if e["skill"]:
+        if tags is not None:
+            die("skills have no tags: put what they are for in the description")
+        check_description(summary)
+        e["path"].write_text(skill_head(e["skill"], summary) + "\n" + e["body"])
+        return commit(e["path"], f"meta {e['name']}")
+    check_summary(summary)
     summary, tags = summary or e["summary"], tag_list(tags) if tags is not None else e["tags"]
-    use = use if use is not None else e["use"]
     text = e["path"].read_text()
     if e["path"].suffix == ".md":
-        text = frontmatter(summary, tags, use) + "\n" + e["body"]
+        text = frontmatter(summary, tags) + "\n" + e["body"]
     else:
         c = grim.CODE[e["path"].suffix]
         rest = [l for l in text.splitlines(keepends=True) if not grim.META.match(l)]
-        text = (f"{c} summary: {summary}\n{c} tags: {', '.join(tags)}\n" + (f"{c} use-when: {use}\n" if use else "")
-                + "".join(rest))
+        text = f"{c} summary: {summary}\n{c} tags: {', '.join(tags)}\n" + "".join(rest)
     e["path"].write_text(text)
     commit(e["path"], f"meta {e['name']}")
 
@@ -287,7 +322,9 @@ def cmd_check(_args):
     names = {e["name"] for e in all_} | {Path(e["name"]).name for e in all_}
     for e in all_:
         if not e["summary"]:
-            bad.append(f"{e['name']}: no summary")
+            bad.append(f"{e['name']}: no {'description' if e['path'].name == grim.SKILL else 'summary'}")
+        if e["path"].name == grim.SKILL and e["skill"] != e["path"].parent.name:
+            bad.append(f"{e['name']}: SKILL.md name '{e['skill']}' must match its folder")
         for link in grim.LINK.findall(e["body"]):
             if link not in names:
                 bad.append(f"{e['name']}: broken link [[{link}]]")
@@ -301,8 +338,8 @@ def cmd_check(_args):
         if not (s / "_about.md").exists():
             bad.append(f"shelf {s.name}: no _about.md")
         for d in s.iterdir():
-            if d.is_dir() and not d.name.startswith((".", "_")) and not (d / grim.FOLDER).is_file():
-                bad.append(f"{s.name}/{d.name}/: folder without {grim.FOLDER}")
+            if d.is_dir() and not d.name.startswith((".", "_")) and not any((d / f).is_file() for f in (grim.FOLDER, grim.SKILL)):
+                bad.append(f"{s.name}/{d.name}/: folder without {grim.FOLDER} or {grim.SKILL}")
     jots = VAULT / "inbox" / "jots.md"
     pending = jots.read_text().count("\n- [") if jots.exists() else 0
     print("\n".join(bad) or f"ok: {len(all_)} entries")
@@ -314,7 +351,7 @@ def cmd_check(_args):
 def main(argv):
     if argv[:1] not in ([], ["-h"], ["--help"], ["help"], ["me"]):
         grim.sync(force=True)  # write on top of the latest upstream
-    cmds = {"new": cmd_new, "put": cmd_put, "add": cmd_add, "replace": cmd_replace, "meta": cmd_meta,
+    cmds = {"new": cmd_new, "put": cmd_put, "add": cmd_add, "replace": cmd_replace, "meta": cmd_meta, "skill": cmd_skill,
             "jot": cmd_jot, "me": cmd_me, "check": cmd_check}
     if not argv or argv[0] not in cmds:
         print(__doc__.strip())

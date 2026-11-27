@@ -37,6 +37,7 @@ grimoire is its own thing. It never touches, calls or depends on forgekit or any
 ## Layout
 ```
 .claude-plugin/   plugin.json + marketplace.json (the repo is its own marketplace)
+commands/         train.md: /grimoire:train
 hooks/hooks.json  SessionStart → grim hook start, UserPromptSubmit → grim hook prompt
 bin/              grim, inscribe (sh) + .cmd twins; Claude Code puts a plugin's bin/ on the agent's PATH
 lib/              grim.py (read, sync, hooks, run), inscribe.py (write); stdlib only
@@ -45,9 +46,12 @@ tests/            test_grimoire.py: python3 tests/test_grimoire.py
 vault/            the shared content (upstream; appears with the first entry)
 ```
 
-Entries: `shelf/name.md` (frontmatter `summary:`, `tags:`, optional `use-when:`), a code file with
-`-- summary:` / `-- tags:` header lines, or a folder `shelf/name/` with `ENTRY.md` plus its files (tools,
-assets). A vault "skill" is an entry with `use-when:`: the prompt hook surfaces it, nothing gets installed.
+Entries: `shelf/name.md` (frontmatter `summary:`, `tags:`), a code file with `-- summary:` / `-- tags:`
+header lines, or a folder `shelf/name/` with `ENTRY.md` plus its files (tools, assets). A vault **skill** is a
+folder `shelf/name/` with `SKILL.md` (frontmatter `name:` = folder name, `description:`) plus any files: same
+shape as a Claude skill, but its own system. Never linked into Claude's skills folder: the start hook lists
+every skill's name and description, and the agent reads one whole with `grim show` when it fits.
+`commands/train.md` is `/grimoire:train`, a guided session for feeding the vault.
 
 ## Releasing a change
 Bump `version` in `.claude-plugin/plugin.json`, commit, push, then on each machine
