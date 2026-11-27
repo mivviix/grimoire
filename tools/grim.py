@@ -8,14 +8,31 @@
   grim path NAME               absolute path of an entry (copy a snippet file into a project with it)
 
 NAME is shelf/name as `ls` prints it; a bare name works when it is unique. Write with `inscribe`.
+
+The vault lives upstream (the grimoire's git remote). grim reads a private clone that it pulls first, at most
+once a minute; inscribe pulls before and pushes after every write. GRIMOIRE_REMOTE sets the upstream (default:
+the origin of the repo these tools are in), GRIMOIRE_HOME the clone's folder, GRIMOIRE_VAULT a plain local
+folder with no syncing (tests, offline work).
 """
 import os
 import re
+import subprocess
 import sys
+import time
 from pathlib import Path
 
+
+def _data_home():
+    if os.name == "nt":
+        return Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local") / "grimoire"
+    return Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share") / "grimoire"
+
+
 ROOT = Path(__file__).resolve().parent.parent
-VAULT = Path(os.environ.get("GRIMOIRE_VAULT") or ROOT / "vault").resolve()
+LOCAL = os.environ.get("GRIMOIRE_VAULT")  # set: a plain folder, never synced
+CLONE = Path(os.environ.get("GRIMOIRE_HOME") or _data_home())
+VAULT = Path(LOCAL).resolve() if LOCAL else CLONE / "vault"
+FRESH = 60  # seconds a read trusts the last pull
 SHOW_MAX = 120  # lines; a longer entry prints its outline unless --full or -s
 CODE = {".luau": "--", ".lua": "--", ".py": "#"}  # code entries carry `-- summary:` / `-- tags:` header lines
 LINK = re.compile(r"\[\[([^\[\]|#\n]+)(?:[|#][^\]\n]*)?\]\]")  # single-line only: Luau's --[[ ]] isn't a link
@@ -25,6 +42,52 @@ HEAD = re.compile(r"^(#{1,6})\s+(.*)")
 def die(msg):
     print(msg, file=sys.stderr)
     sys.exit(1)
+
+
+def warn(msg):
+    print(f"grimoire: {msg}", file=sys.stderr)
+
+
+def git(*args, cwd=None):
+    return subprocess.run(["git", "-C", str(cwd or CLONE), *args], capture_output=True, text=True)
+
+
+def sync(force=False):
+    """Pull the upstream vault into the clone (cloning it the first time) and push commits still waiting."""
+    if LOCAL:
+        return
+    if not (CLONE / ".git").is_dir():
+        url = os.environ.get("GRIMOIRE_REMOTE") or git("remote", "get-url", "origin", cwd=ROOT).stdout.strip()
+        if not url:
+            die("grimoire: no upstream known; set GRIMOIRE_REMOTE to the grimoire's git URL")
+        CLONE.parent.mkdir(parents=True, exist_ok=True)
+        r = subprocess.run(["git", "clone", "-q", url, str(CLONE)], capture_output=True, text=True)
+        if r.returncode:
+            die(f"grimoire: could not clone {url}: {r.stderr.strip()}")
+        (CLONE / ".git" / "grimoire-pulled").touch()
+        return
+    stamp = CLONE / ".git" / "grimoire-pulled"
+    if not force and stamp.exists() and time.time() - stamp.stat().st_mtime < FRESH:
+        return
+    r = git("pull", "-q", "--rebase")
+    if r.returncode:
+        git("rebase", "--abort")
+        warn(f"couldn't pull, using the last copy ({r.stderr.strip()[:200]})")
+    else:
+        stamp.touch()
+    push()
+
+
+def push():
+    """Push local commits; on a race, rebase onto upstream and retry once. Unpushed commits wait for next time."""
+    if LOCAL or git("rev-list", "--count", "@{u}..HEAD").stdout.strip() in ("", "0"):
+        return
+    if git("push", "-q").returncode == 0:
+        return
+    if git("pull", "-q", "--rebase").returncode == 0 and git("push", "-q").returncode == 0:
+        return
+    git("rebase", "--abort")
+    warn("saved locally but not pushed yet (offline or no push access); it goes up on the next run")
 
 
 def shelves():
@@ -180,6 +243,8 @@ def cmd_show(name, section=None, full=False):
 
 
 def main(argv):
+    if argv[:1] not in (["-h"], ["--help"], ["help"]):
+        sync()
     if not VAULT.is_dir():
         die(f"no vault at {VAULT}")
     if not argv:

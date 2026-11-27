@@ -11,7 +11,8 @@
   inscribe check                                     lint: summaries, broken [[links]], oversized entries
 
 The vault grows itself: open a new shelf only when no existing shelf fits (`grim` lists them).
-Every write is committed to the grimoire's git, so nothing is lost. Read with `grim`.
+Every write pulls the upstream vault first, then is committed and pushed, so every agent shares one vault.
+Read with `grim`.
 """
 import datetime
 import re
@@ -64,6 +65,8 @@ def commit(path, msg, *extra):
     ok = ok and subprocess.run(git + ["commit", "-q", "-m", f"inscribe: {msg}", "--", *paths],
                                capture_output=True).returncode == 0
     print(f"{'saved' if ok else 'saved (not committed: no git here)'}: {rel}")
+    if ok:
+        grim.push()
 
 
 def frontmatter(summary, tags):
@@ -215,6 +218,8 @@ def cmd_check(_args):
 
 
 def main(argv):
+    if argv[:1] not in ([], ["-h"], ["--help"], ["help"]):
+        grim.sync(force=True)  # write on top of the latest upstream
     if not VAULT.is_dir():
         die(f"no vault at {VAULT}")
     cmds = {"new": cmd_new, "add": cmd_add, "replace": cmd_replace, "meta": cmd_meta, "jot": cmd_jot, "check": cmd_check}

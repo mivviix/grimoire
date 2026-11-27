@@ -9,9 +9,10 @@ from pathlib import Path
 TOOLS = Path(__file__).resolve().parent
 
 
-def run(tool, *args, stdin=None, ok=True):
+def run(tool, *args, stdin=None, ok=True, env=None):
+    env = env or {**os.environ, "GRIMOIRE_VAULT": vault}
     r = subprocess.run([sys.executable, "-I", "-X", "utf8", str(TOOLS / f"{tool}.py"), *args], input=stdin or "",
-                       capture_output=True, text=True, env={**os.environ, "GRIMOIRE_VAULT": vault})
+                       capture_output=True, text=True, env=env)
     assert (r.returncode == 0) == ok, f"{tool} {args}: rc={r.returncode}\n{r.stdout}{r.stderr}"
     return r.stdout + r.stderr
 
@@ -50,5 +51,32 @@ with tempfile.TemporaryDirectory() as vault:
     assert "1 jots" in run("inscribe", "check")
     Path(f"{vault}/engine/broken.md").write_text("---\nsummary: s\n---\n# B\n[[nowhere]]\n")
     assert "broken link [[nowhere]]" in run("inscribe", "check", ok=False)
+
+# Upstream sync: two machines share one vault through a bare "GitHub" repo.
+with tempfile.TemporaryDirectory() as tmp:
+    sh = lambda *c, cwd=tmp: subprocess.run(c, cwd=cwd, check=True, capture_output=True)
+    ident = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}
+    base = {k: v for k, v in os.environ.items() if k != "GRIMOIRE_VAULT"} | ident
+    os.environ.update(ident)
+    sh("git", "init", "-q", "--bare", "-b", "main", "up.git")
+    sh("git", "clone", "-q", "up.git", "seed")
+    os.makedirs(f"{tmp}/seed/vault/engine")
+    Path(f"{tmp}/seed/vault/engine/_about.md").write_text("engine shelf\n")
+    sh("git", "add", "-A", cwd=f"{tmp}/seed")
+    sh("git", "commit", "-qm", "seed", cwd=f"{tmp}/seed")
+    sh("git", "push", "-q", "origin", "HEAD:main", cwd=f"{tmp}/seed")
+    a = base | {"GRIMOIRE_REMOTE": f"{tmp}/up.git", "GRIMOIRE_HOME": f"{tmp}/a"}
+    b = base | {"GRIMOIRE_REMOTE": f"{tmp}/up.git", "GRIMOIRE_HOME": f"{tmp}/b"}
+
+    run("inscribe", "new", "engine/streaming", "-s", "streaming facts", stdin="- x\n", env=a)
+    log = subprocess.run(["git", "--git-dir", f"{tmp}/up.git", "log", "--oneline"], capture_output=True, text=True)
+    assert "inscribe: new engine/streaming.md" in log.stdout, log.stdout        # pushed upstream
+    assert "streaming facts" in run("grim", "find", "streaming", env=b)        # another machine sees it
+    run("inscribe", "add", "streaming", stdin="- from b\n", env=b)
+    run("inscribe", "add", "streaming", stdin="- from a\n", env=a)            # a must pull b's edit first
+    assert "from b" in run("grim", "show", "streaming", env=a)
+    os.utime(f"{tmp}/b/.git/grimoire-pulled", (0, 0))                          # expire b's read cache
+    out = run("grim", "show", "streaming", env=b)
+    assert "from a" in out and "from b" in out, out
 
 print("ok")

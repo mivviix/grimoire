@@ -5,8 +5,10 @@ description: The grimoire is the agent's Roblox library - engine gotchas, Luau i
 
 # grimoire
 
-A library of what is known about making Roblox games here. It is read through a command so you only load the
-few lines you need: never `cat` or glob the vault folder yourself.
+A library of what is known about making Roblox games. It is read through a command so you only load the
+few lines you need: never `cat` or glob a vault folder yourself. The vault is shared through its git
+upstream: `grim` pulls the latest and `inscribe` pushes what you write, so every agent sees the same vault.
+If one warns that it couldn't pull or push, carry on: it retries on the next run.
 
 ## Read: `grim`
 - `grim`: the shelves (engine, luau, patterns, snippets, assets, guides, inbox) and their size.
