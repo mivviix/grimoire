@@ -11,7 +11,7 @@ upstream: `grim` pulls the latest and `inscribe` pushes what you write, so every
 If one warns that it couldn't pull or push, carry on: it retries on the next run.
 
 ## Read: `grim`
-- `grim`: the shelves (engine, luau, patterns, snippets, assets, guides, inbox) and their size.
+- `grim`: the shelves that exist so far, their size and what each holds.
 - `grim find WORDS...`: the best matches with their summaries. Start every Roblox task here with 2-4 words
   from the task ("ragdoll knockback", "datastore save", "streaming teleport").
 - `grim show NAME [NAME...]`: read entries. A long one prints its outline: then `grim show NAME -s HEADING`.
@@ -42,9 +42,15 @@ Not: project-specific details (they go in that project's own notes), guesses, or
 Style: facts first, short lines, the why in a few words, code only where it says more than prose. A summary
 says what the entry holds and when to read it. Keep entries under ~150 lines; split by topic instead.
 
-Shelves grow the same way: when no shelf in `grim` fits, open one with the entry that needs it:
-`inscribe new vfx/slash-trails -s "..." --new-shelf "particle effects: recipes and tuning"`. Prefer an existing
-shelf; a new one is for a whole topic, not a single entry. Keep names short, lowercase, kebab-case.
+## Shelves are yours to shape
+There are no preset shelves: you decide them as the vault fills (guides, Roblox engine facts, snippets,
+tools, asset recipes: whatever the finds turn out to be). Open one with the entry that needs it:
+`inscribe new physics/network-ownership -s "..." --new-shelf "how Roblox physics really behaves"`.
+- Few broad shelves beat many narrow ones. A handful is plenty for a long time. Don't open a shelf for
+  one entry, don't split a shelf to look organised, and never make a shelf per project or per day.
+- First put it in the shelf it most nearly fits; a new shelf is for a topic that clearly stands apart.
+- Short lowercase kebab-case names that say the topic plainly (`physics`, `ui`, `snippets`).
+- `inscribe jot` opens `inbox` by itself; file its lines into real shelves when you have a moment.
 
 You may add entries and shelves. You may not change the tools or how the vault works: that is the user's
 call, made in a session in the grimoire repo itself. If the structure gets in your way, say so to the user.

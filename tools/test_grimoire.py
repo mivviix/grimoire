@@ -17,6 +17,13 @@ def run(tool, *args, stdin=None, ok=True, env=None):
     return r.stdout + r.stderr
 
 
+with tempfile.TemporaryDirectory() as tmp:                                       # from nothing at all
+    vault = f"{tmp}/vault"
+    assert "empty" in run("grim")
+    run("inscribe", "jot", "first find")
+    run("inscribe", "new", "physics/ownership", "-s", "s", "--new-shelf", "physics", stdin="x")
+    assert "inbox" in run("grim") and "physics" in run("grim")
+
 with tempfile.TemporaryDirectory() as vault:
     for s in ("engine", "snippets", "inbox"):
         os.mkdir(f"{vault}/{s}")
@@ -60,15 +67,14 @@ with tempfile.TemporaryDirectory() as tmp:
     os.environ.update(ident)
     sh("git", "init", "-q", "--bare", "-b", "main", "up.git")
     sh("git", "clone", "-q", "up.git", "seed")
-    os.makedirs(f"{tmp}/seed/vault/engine")
-    Path(f"{tmp}/seed/vault/engine/_about.md").write_text("engine shelf\n")
+    Path(f"{tmp}/seed/CLAUDE.md").write_text("repo without a vault folder yet\n")
     sh("git", "add", "-A", cwd=f"{tmp}/seed")
     sh("git", "commit", "-qm", "seed", cwd=f"{tmp}/seed")
     sh("git", "push", "-q", "origin", "HEAD:main", cwd=f"{tmp}/seed")
     a = base | {"GRIMOIRE_REMOTE": f"{tmp}/up.git", "GRIMOIRE_HOME": f"{tmp}/a"}
     b = base | {"GRIMOIRE_REMOTE": f"{tmp}/up.git", "GRIMOIRE_HOME": f"{tmp}/b"}
 
-    run("inscribe", "new", "engine/streaming", "-s", "streaming facts", stdin="- x\n", env=a)
+    run("inscribe", "new", "engine/streaming", "-s", "streaming facts", "--new-shelf", "engine", stdin="- x\n", env=a)
     log = subprocess.run(["git", "--git-dir", f"{tmp}/up.git", "log", "--oneline"], capture_output=True, text=True)
     assert "inscribe: new engine/streaming.md" in log.stdout, log.stdout        # pushed upstream
     assert "streaming facts" in run("grim", "find", "streaming", env=b)        # another machine sees it

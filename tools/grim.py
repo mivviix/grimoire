@@ -91,6 +91,8 @@ def push():
 
 
 def shelves():
+    if not VAULT.is_dir():  # an empty vault has no folder until its first shelf
+        return []
     return sorted(p for p in VAULT.iterdir() if p.is_dir() and not p.name.startswith((".", "_")))
 
 
@@ -160,6 +162,8 @@ def line(e):
 
 def cmd_map():
     all_ = entries()
+    if not all_ and not shelves():
+        return print("grimoire: empty. File the first find with `inscribe new SHELF/NAME ... --new-shelf \"...\"`.")
     print(f"grimoire: {len(all_)} entries. `grim find WORDS` searches, `grim show NAME` reads, `inscribe -h` writes.")
     for s in shelves():
         n = sum(e["shelf"] == s.name for e in all_)
@@ -245,8 +249,6 @@ def cmd_show(name, section=None, full=False):
 def main(argv):
     if argv[:1] not in (["-h"], ["--help"], ["help"]):
         sync()
-    if not VAULT.is_dir():
-        die(f"no vault at {VAULT}")
     if not argv:
         return cmd_map()
     cmd, rest = argv[0], argv[1:]

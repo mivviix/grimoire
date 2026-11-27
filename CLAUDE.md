@@ -10,7 +10,9 @@ The agent's Roblox library. Sessions *in this folder* change how it works; every
 - `tools/inscribe.py`: write CLI (new, add, replace, meta, jot, check). Opens a new shelf only with
   `--new-shelf "description"` alongside its first entry; commits and pushes every write
   (`git commit -- <file>`), messages start with `inscribe:`.
-- The vault ships empty (the starter shelves' `_about.md` only) and is filled by agents as they work.
+- The vault ships empty, with no preset shelves and not even a `vault/` folder. Agents open shelves as they
+  file finds and decide the structure themselves; the skill steers them to a few broad shelves. Don't seed
+  shelves or content here.
 - `tools/skill/SKILL.md`: what agents are told. `tools/install.sh` (Linux/macOS) symlinks both commands
   into ~/.local/bin and the skill into ~/.claude/skills/grimoire. `tools/install.bat` (Windows, no admin)
   writes `grim.cmd` / `inscribe.cmd` launchers (`py -3 -X utf8`) into %USERPROFILE%\.local\bin, adds it to the
@@ -50,4 +52,5 @@ Every change keeps it that way:
   and maintain it without asking anyone.
 
 Upkeep: file `vault/inbox/jots.md` lines into shelves, merge overlapping entries, run `inscribe check`.
-Merge or rename shelves that agents opened badly (move files, fix `[[links]]`, `inscribe check`).
+If agents sprawl into many thin shelves, merge them (move files, fix `[[links]]`, `inscribe check`) and
+sharpen the shelf guidance in the skill rather than imposing a fixed layout.

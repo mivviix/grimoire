@@ -10,7 +10,7 @@
   inscribe jot "TEXT"                                one dated line in inbox/jots, for a find you have no time to file
   inscribe check                                     lint: summaries, broken [[links]], oversized entries
 
-The vault grows itself: open a new shelf only when no existing shelf fits (`grim` lists them).
+The agent shapes the vault: there are no preset shelves. Open one only when no existing shelf fits.
 Every write pulls the upstream vault first, then is committed and pushed, so every agent shares one vault.
 Read with `grim`.
 """
@@ -110,7 +110,7 @@ def cmd_new(args):
         print(f"note: '{stem}' also names {', '.join(clash)}; links to it must use the shelf/ form")
     body = stdin_body()
     if shelf_about is not None:
-        about.parent.mkdir()
+        about.parent.mkdir(parents=True)
         about.write_text(shelf_about.strip() + "\n")
     if suffix == ".md":
         if not body.lstrip().startswith("# "):
@@ -185,13 +185,16 @@ def cmd_meta(args):
 def cmd_jot(args):
     if not args:
         die('usage: inscribe jot "TEXT"')
-    path = VAULT / "inbox" / "jots.md"
+    path, about = VAULT / "inbox" / "jots.md", VAULT / "inbox" / "_about.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if not about.exists():
+        about.write_text("Unsorted finds jotted mid-task, waiting to be filed. Not verified yet.\n")
     if not path.exists():
         path.write_text(frontmatter("Raw finds jotted mid-task, waiting to be filed into a shelf", ["inbox"])
                         + "\n# Jots\n\n")
     with path.open("a") as f:
         f.write(f"- [{datetime.date.today()}] {' '.join(args).strip()}\n")
-    commit(path, "jot")
+    commit(path, "jot", about)
 
 
 def cmd_check(_args):
@@ -220,8 +223,6 @@ def cmd_check(_args):
 def main(argv):
     if argv[:1] not in ([], ["-h"], ["--help"], ["help"]):
         grim.sync(force=True)  # write on top of the latest upstream
-    if not VAULT.is_dir():
-        die(f"no vault at {VAULT}")
     cmds = {"new": cmd_new, "add": cmd_add, "replace": cmd_replace, "meta": cmd_meta, "jot": cmd_jot, "check": cmd_check}
     if not argv or argv[0] not in cmds:
         print(__doc__.strip())
