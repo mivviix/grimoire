@@ -1,1 +1,1 @@
-Making assets: which forgekit tool for what, art direction, per-asset techniques. Tool flags live in forgekit help <tool>.
+Making assets: art direction, per-asset techniques and tool recipes. A tool's own flags live in its manual.

@@ -21,7 +21,8 @@ the task, then file what you learned.
 
 What the grimoire says is confirmed knowledge; prefer it over your own memory of the Roblox API when they
 disagree, unless the official docs say otherwise (then fix the entry). `inbox/` is unverified.
-For forgekit flags and formats read `forgekit help <tool>`; the grimoire only maps which tool to use.
+For an asset tool's own flags and formats read its manual (`forgekit help <tool>` if forgekit is installed);
+the grimoire holds the recipes and lessons around them.
 
 ## Write: `inscribe`
 File a find when it cost real effort or would save the next agent a mistake: an engine behaviour you
@@ -44,4 +45,4 @@ Shelves grow the same way: when no shelf in `grim` fits, open one with the entry
 shelf; a new one is for a whole topic, not a single entry. Keep names short, lowercase, kebab-case.
 
 You may add entries and shelves. You may not change the tools or how the vault works: that is the user's
-call, made in a session in ~/Documents/grimoire. If the structure gets in your way, say so to the user.
+call, made in a session in the grimoire repo itself. If the structure gets in your way, say so to the user.

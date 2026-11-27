@@ -17,5 +17,19 @@ The agent's Roblox library. Sessions *in this folder* change how it works; every
 
 Stdlib Python only, no venv. `GRIMOIRE_VAULT` points the tools at another vault (tests use it).
 
+## Distributable to anyone
+
+The project must always work for anyone who clones it, on any machine, with nothing but git and Python 3.11+.
+Every change keeps it that way:
+- No paths, usernames, accounts or machine facts from one person's setup in code, docs, the skill or the
+  vault. Paths are relative to the repo (`tools/` finds `vault/` by itself) or come from env vars.
+- No dependency on anyone's private tools or other projects. A tool may be mentioned as optional
+  ("if X is installed"), never required.
+- Stdlib Python only; `tools/install.sh` stays the one setup step, and touches only user-level paths.
+- The vault holds general Roblox knowledge, never one person's preferences, projects or private notes:
+  those belong in that person's own memory or project notes.
+- The layout stays self-explanatory: this file, the skill and `grim -h` / `inscribe -h` are enough to use
+  and maintain it without asking anyone.
+
 Upkeep: file `vault/inbox/jots.md` lines into shelves, merge overlapping entries, run `inscribe check`.
 Merge or rename shelves that agents opened badly (move files, fix `[[links]]`, `inscribe check`).
