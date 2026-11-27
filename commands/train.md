@@ -6,6 +6,10 @@ argument-hint: "[what to teach, or files/folders to read]"
 The user wants to train the shared grimoire vault: give it what they already know so every agent on the vault
 gets it. Read the grimoire skill first if you haven't this session. Material to start from: $ARGUMENTS
 
+Talk about it the way users do: this is "training the vault", and you are their agent. Keep it friendly and
+plain, no jargon about files or frontmatter unless they ask. If they gave you nothing yet, open with
+something like "Let's train the vault! Where do we begin?"
+
 1. **Gather.** If nothing was given, ask what they want to teach: files or folders to read, notes to paste, or
    just talk it through with you. Read files yourself; don't make them retype what's on disk.
 2. **Go through it piece by piece.** For each topic decide what it becomes:

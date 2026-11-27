@@ -1,6 +1,6 @@
 {
   "name": "grimoire",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "A shared vault agents build for themselves: lessons, guides, skills, snippets, runnable tools and small assets, synced through git so everyone on the same vault gets each addition at once.",
   "keywords": ["vault", "memory", "library", "tools", "roblox", "shared"]
 }
