@@ -48,7 +48,7 @@ Every change keeps it that way:
   user-level paths.
 - The vault holds general Roblox knowledge, never one person's preferences, projects or private notes:
   those belong in that person's own memory or project notes.
-- The layout stays self-explanatory: this file, the skill and `grim -h` / `inscribe -h` are enough to use
+- The layout stays self-explanatory: README.md, this file, the skill and `grim -h` / `inscribe -h` are enough to use
   and maintain it without asking anyone.
 
 Upkeep: file `vault/inbox/jots.md` lines into shelves, merge overlapping entries, run `inscribe check`.
