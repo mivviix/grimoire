@@ -3,13 +3,14 @@
 
   inscribe new SHELF/NAME -s "SUMMARY" [-t tag,tag]   a new entry. NAME.md for prose (body starts with '# Title'),
                                                      NAME.luau / .lua / .py for a drop-in code file
+      [--new-shelf "WHAT IT HOLDS"]                  ...opening a new shelf for it when no existing one fits
   inscribe add NAME [-s HEADING]                     append to an entry, or to the end of one of its sections
   inscribe replace NAME OLD NEW                      replace exact text that occurs once (NEW "" deletes it)
   inscribe meta NAME [-s "SUMMARY"] [-t tag,tag]     change an entry's summary or tags
   inscribe jot "TEXT"                                one dated line in inbox/jots, for a find you have no time to file
   inscribe check                                     lint: summaries, broken [[links]], oversized entries
 
-Shelves are fixed: inscribe never makes a new one (that is a change to how the grimoire works, made by the user).
+The vault grows itself: open a new shelf only when no existing shelf fits (`grim` lists them).
 Every write is committed to the grimoire's git, so nothing is lost. Read with `grim`.
 """
 import datetime
@@ -56,11 +57,11 @@ def check_summary(s):
         die("summary must be one line, 1-160 chars: what it is and when to read it")
 
 
-def commit(path, msg):
+def commit(path, msg, *extra):
     rel = path.relative_to(VAULT.parent) if VAULT.parent in path.parents else path
-    git = ["git", "-C", str(VAULT)]
-    ok = subprocess.run(git + ["add", "--", str(path)], capture_output=True).returncode == 0
-    ok = ok and subprocess.run(git + ["commit", "-q", "-m", f"inscribe: {msg}", "--", str(path)],
+    git, paths = ["git", "-C", str(VAULT)], [str(path), *map(str, extra)]
+    ok = subprocess.run(git + ["add", "--", *paths], capture_output=True).returncode == 0
+    ok = ok and subprocess.run(git + ["commit", "-q", "-m", f"inscribe: {msg}", "--", *paths],
                                capture_output=True).returncode == 0
     print(f"{'saved' if ok else 'saved (not committed: no git here)'}: {rel}")
 
@@ -74,7 +75,7 @@ def tag_list(t):
 
 
 def cmd_new(args):
-    summary, tags = opt(args, "-s"), tag_list(opt(args, "-t"))
+    summary, tags, shelf_about = opt(args, "-s"), tag_list(opt(args, "-t")), opt(args, "--new-shelf")
     if len(args) != 1 or summary is None:
         die('usage: inscribe new SHELF/NAME -s "SUMMARY" [-t tags] <<EOF ... EOF')
     check_summary(summary)
@@ -82,8 +83,16 @@ def cmd_new(args):
     if len(parts) != 2:
         die("name is SHELF/NAME (shelves are flat, no subfolders)")
     shelf, fname = parts
-    if not (VAULT / shelf).is_dir() or shelf.startswith(("_", ".")):
-        die(f"no shelf '{shelf}'; shelves are fixed: " + ", ".join(s.name for s in grim.shelves()))
+    about = VAULT / shelf / "_about.md"
+    if shelf_about is not None:
+        if (VAULT / shelf).is_dir():
+            die(f"shelf '{shelf}' exists; drop --new-shelf")
+        if not NAME.match(shelf):
+            die(f"bad shelf name '{shelf}': lowercase-kebab-case")
+        check_summary(shelf_about)
+    elif not (VAULT / shelf).is_dir() or shelf.startswith(("_", ".")):
+        die(f"no shelf '{shelf}'. Shelves: " + ", ".join(s.name for s in grim.shelves())
+            + '. If none fits, add --new-shelf "what the shelf holds"')
     stem, suffix = (fname.rsplit(".", 1) + [""])[:2]
     suffix = "." + suffix if suffix else ".md"
     if suffix != ".md" and suffix not in grim.CODE:
@@ -97,6 +106,9 @@ def cmd_new(args):
     if clash:
         print(f"note: '{stem}' also names {', '.join(clash)}; links to it must use the shelf/ form")
     body = stdin_body()
+    if shelf_about is not None:
+        about.parent.mkdir()
+        about.write_text(shelf_about.strip() + "\n")
     if suffix == ".md":
         if not body.lstrip().startswith("# "):
             body = f"# {stem.replace('-', ' ').capitalize()}\n\n{body}"
@@ -105,7 +117,8 @@ def cmd_new(args):
         c = grim.CODE[suffix]
         text = f"{c} summary: {summary}\n{c} tags: {', '.join(tags)}\n" + body
     path.write_text(text)
-    commit(path, f"new {shelf}/{path.name}")
+    commit(path, f"new {shelf}/{path.name}" + (" (new shelf)" if shelf_about is not None else ""),
+           *([about] if shelf_about is not None else []))
 
 
 def cmd_add(args):

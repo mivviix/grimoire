@@ -14,7 +14,10 @@ few lines you need: never `cat` or glob the vault folder yourself.
   from the task ("ragdoll knockback", "datastore save", "streaming teleport").
 - `grim show NAME [NAME...]`: read entries. A long one prints its outline: then `grim show NAME -s HEADING`.
 - `grim ls SHELF`: everything on one shelf.
-- `grim path NAME`: the file, to copy a snippet into a project: `cp "$(grim path Cleanup.luau)" src/shared/`.
+- `grim path NAME`: the file, to copy a snippet into a project: `cp "$(grim path Spring.luau)" src/shared/`.
+
+The vault starts nearly empty and grows from work. An empty `find` just means nobody has filed it yet: do
+the task, then file what you learned.
 
 What the grimoire says is confirmed knowledge; prefer it over your own memory of the Roblox API when they
 disagree, unless the official docs say otherwise (then fix the entry). `inbox/` is unverified.
@@ -36,5 +39,9 @@ Not: project-specific details (they go in that project's own notes), guesses, or
 Style: facts first, short lines, the why in a few words, code only where it says more than prose. A summary
 says what the entry holds and when to read it. Keep entries under ~150 lines; split by topic instead.
 
-You may add and edit entries. You may not add shelves or change the tools: that is the user's call, made in
-a session in ~/Documents/grimoire. If the structure gets in your way, say so to the user.
+Shelves grow the same way: when no shelf in `grim` fits, open one with the entry that needs it:
+`inscribe new vfx/slash-trails -s "..." --new-shelf "particle effects: recipes and tuning"`. Prefer an existing
+shelf; a new one is for a whole topic, not a single entry. Keep names short, lowercase, kebab-case.
+
+You may add entries and shelves. You may not change the tools or how the vault works: that is the user's
+call, made in a session in ~/Documents/grimoire. If the structure gets in your way, say so to the user.

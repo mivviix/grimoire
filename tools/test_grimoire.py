@@ -24,7 +24,10 @@ with tempfile.TemporaryDirectory() as vault:
     run("inscribe", "new", "engine/ownership", "-s", "who simulates physics", "-t", "physics,Net",
         stdin="# Ownership\n\n## Rules\n- one\n\n## Other\ntext [[Spring.luau]]\n")
     run("inscribe", "new", "snippets/Spring.luau", "-s", "a spring", stdin="return {}\n")
-    run("inscribe", "new", "magic/x", "-s", "nope", stdin="x", ok=False)         # shelves are fixed
+    run("inscribe", "new", "magic/x", "-s", "nope", stdin="x", ok=False)         # unknown shelf needs --new-shelf
+    run("inscribe", "new", "magic/x", "-s", "a spell", "--new-shelf", "spells", stdin="x")
+    assert Path(f"{vault}/magic/_about.md").read_text() == "spells\n"
+    run("inscribe", "new", "magic/y", "-s", "s", "--new-shelf", "again", stdin="x", ok=False)
     run("inscribe", "new", "engine/ownership", "-s", "dup", stdin="x", ok=False)  # no overwrite
     run("inscribe", "new", "engine/Bad_Name", "-s", "x", stdin="x", ok=False)
 
