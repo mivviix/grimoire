@@ -10,15 +10,20 @@
   grim skills                   the vault's skills: name and description (`grim show NAME` reads one)
   grim me                       your private notes (on this machine only, never pushed)
   grim init URL                 first-time setup: clone the shared vault from its git URL
+  grim guide [train]            how to use and grow the vault (the grimoire skill; `train`: a training session)
+  grim scaffold [--tools URL]   make the current vault repo work when opened directly (PC folder or phone
+                                session): adds its CLAUDE.md, hooks and tool launcher, then pushes
   grim config [me on|off]       show or change settings
   grim hook start|prompt        used by the plugin's hooks (reads hook JSON on stdin)
 
 NAME is shelf/name as `ls` prints it; a bare name works when it is unique. Write with `inscribe`.
 
 The vault lives upstream (its git remote). grim reads a private clone that it pulls first, at most once a
-minute; inscribe pulls before and pushes after every write. GRIMOIRE_HOME moves the clone, GRIMOIRE_VAULT
-uses a plain local folder with no syncing (tests, offline work).
+minute; inscribe pulls before and pushes after every write. Run inside a checkout of a vault repo (one with a
+.grimoire-vault file), grim uses that checkout instead and pushes to its default branch. GRIMOIRE_HOME moves
+the clone, GRIMOIRE_VAULT uses a plain local folder with no syncing (tests, offline work).
 """
+import hashlib
 import json
 import os
 import re
@@ -41,12 +46,30 @@ def _cache_home():
     return Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "grimoire"
 
 
+MARKER = ".grimoire-vault"  # at the root of a vault repo: open it directly and grim works on that checkout
+
+
+def _checkout():
+    """The vault repo checkout we are inside (the user's PC folder, a cloud session's clone), if any."""
+    if os.environ.get("GRIMOIRE_CHECKOUT"):  # set by a vault repo's .grimoire/run.py
+        return Path(os.environ["GRIMOIRE_CHECKOUT"]).resolve()
+    if os.environ.get("GRIMOIRE_HOME") or os.environ.get("GRIMOIRE_VAULT"):
+        return None
+    for d in [Path.cwd(), *Path.cwd().parents]:
+        if (d / MARKER).is_file() and (d / ".git").exists():
+            return d
+    return None
+
+
 LOCAL = os.environ.get("GRIMOIRE_VAULT")  # set: a plain folder, never synced
-CLONE = Path(os.environ.get("GRIMOIRE_HOME") or _data_home() / "grimoire")
+CHECKOUT = _checkout()
+CLONE = CHECKOUT or Path(os.environ.get("GRIMOIRE_HOME") or _data_home() / "grimoire")
 VAULT = Path(LOCAL).resolve() if LOCAL else CLONE / "vault"
 _BASE = VAULT if LOCAL else CLONE
-STATE = _BASE.with_name(_BASE.name + "-state")  # config, last session, tools run, hook seen-sets
-ME = _BASE.with_name(_BASE.name + "-me") / "notes.md"  # private; outside the clone so it can never be pushed
+# config, last session, tools run, hook seen-sets; a checkout keeps them inside .git, never committed
+STATE = CHECKOUT / ".git" / "grimoire-state" if CHECKOUT else _BASE.with_name(_BASE.name + "-state")
+# private; outside any clone so it can never be pushed
+ME = (_data_home() / "grimoire-me" if CHECKOUT else _BASE.with_name(_BASE.name + "-me")) / "notes.md"
 FRESH = 60  # seconds a read trusts the last pull
 SHOW_MAX = 120  # lines; a longer entry prints its outline unless --full or -s
 MAX_FILE = 5 * 1024 * 1024  # bigger files stay local: tools make or download them
@@ -98,7 +121,17 @@ def ready():
     return bool(LOCAL) or (CLONE / ".git").is_dir()
 
 
+def _default_branch():
+    ref = git("symbolic-ref", "--short", "refs/remotes/origin/HEAD").stdout.strip()
+    return ref.split("/", 1)[1] if "/" in ref else "main"
+
+
 def _pull():
+    if CHECKOUT:  # a cloud session may sit on its own branch: always stay on top of the shared one
+        r = git("pull", "-q", "--rebase", "--autostash", "origin", _default_branch())
+        if r.returncode and "couldn't find remote ref" in r.stderr:
+            r.returncode = 0
+        return r
     if git("rev-parse", "--abbrev-ref", "@{u}").returncode == 0:
         return git("pull", "-q", "--rebase")
     branch = git("branch", "--show-current").stdout.strip() or "main"
@@ -132,11 +165,19 @@ def push():
     """Push local commits; on a race, rebase onto upstream and retry once. Unpushed commits wait for next time."""
     if LOCAL or git("rev-parse", "-q", "--verify", "HEAD").returncode:
         return
-    if git("rev-parse", "--abbrev-ref", "@{u}").returncode == 0 and git("rev-list", "--count", "@{u}..HEAD").stdout.strip() == "0":
+    if CHECKOUT:
+        target = _default_branch()
+        up = f"origin/{target}"
+        if git("rev-parse", "-q", "--verify", up).returncode == 0 and git("rev-list", "--count", f"{up}..HEAD").stdout.strip() == "0":
+            return
+        args = ["push", "-q", "origin", f"HEAD:refs/heads/{target}"]
+    else:
+        if git("rev-parse", "--abbrev-ref", "@{u}").returncode == 0 and git("rev-list", "--count", "@{u}..HEAD").stdout.strip() == "0":
+            return
+        args = ["push", "-q", "-u", "origin", "HEAD"]
+    if git(*args).returncode == 0:
         return
-    if git("push", "-q", "-u", "origin", "HEAD").returncode == 0:
-        return
-    if _pull().returncode == 0 and git("push", "-q", "-u", "origin", "HEAD").returncode == 0:
+    if _pull().returncode == 0 and git(*args).returncode == 0:
         return
     git("rebase", "--abort")
     warn("saved locally but not pushed yet (offline or no push access); it goes up on the next run")
@@ -386,6 +427,8 @@ def cmd_init(args):
     url = args[0] if args else os.environ.get("GRIMOIRE_REMOTE")
     if LOCAL:
         die("GRIMOIRE_VAULT is set: that folder is used as is, nothing to clone")
+    if CHECKOUT:
+        return print(f"you're inside the vault repo {CHECKOUT}: grim works on it directly, nothing to set up")
     if ready():
         return print(f"already set up: {CLONE} (upstream {git('remote', 'get-url', 'origin').stdout.strip()})")
     if not url:
@@ -397,6 +440,57 @@ def cmd_init(args):
     (CLONE / ".git" / "grimoire-pulled").touch()
     save("state.json", {**load("state.json", {}), "seen_head": git("rev-parse", "HEAD").stdout.strip()})
     print(f"vault cloned into {CLONE}; {len(entries())} entries")
+
+
+ROOT = Path(__file__).resolve().parent.parent  # the grimoire tool itself (plugin folder or a clone)
+
+
+def _body(path):
+    text = path.read_text()
+    return text.split("\n---", 1)[1].lstrip("-\n") if text.startswith("---\n") else text
+
+
+def cmd_guide(args):
+    if args[:1] == ["train"]:
+        return print(_body(ROOT / "commands" / "train.md").replace("$ARGUMENTS", "whatever the user gives you"))
+    print(_body(ROOT / "skills" / "grimoire" / "SKILL.md"))
+
+
+def cmd_scaffold(args):
+    """Add what a vault repo needs to work when opened directly; never overwrites the repo's own files.
+    Works on the git repo it is run in (a fresh clone of the vault repo, maybe still empty)."""
+    global CHECKOUT, CLONE, VAULT, STATE
+    url = None
+    if "--tools" in args[:-1]:
+        url = args[args.index("--tools") + 1]
+    url = url or git("remote", "get-url", "origin", cwd=ROOT).stdout.strip()
+    top = git("rev-parse", "--show-toplevel", cwd=Path.cwd()).stdout.strip()
+    if LOCAL or not top:
+        die("run it inside a clone of the vault repo (`git clone VAULT_URL`, then cd into it)")
+    if not url:
+        die("usage: grim scaffold --tools URL   (the grimoire repo's git URL)")
+    CHECKOUT = CLONE = Path(top).resolve()
+    VAULT, STATE = CLONE / "vault", CLONE / ".git" / "grimoire-state"
+    sync(force=True)
+    made = []
+    for src in sorted(p for p in (ROOT / "template").rglob("*") if p.is_file()):
+        dst = CLONE / src.relative_to(ROOT / "template")
+        if dst.exists():
+            continue
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        dst.write_text(src.read_text().replace("{TOOLS_URL}", url))
+        made.append(dst)
+    marker = CLONE / MARKER
+    if not marker.exists():
+        marker.write_text("This repo is a grimoire vault: grim and inscribe work on a checkout of it directly.\n")
+        made.append(marker)
+    if not made:
+        return print("nothing to add: this vault repo is already set up")
+    rel = [str(p.relative_to(CLONE)) for p in made]
+    git("add", "--", *rel)
+    git("commit", "-q", "-m", "grimoire: make the vault work when opened directly", "--", *rel)
+    push()
+    print("added: " + ", ".join(rel))
 
 
 def cmd_config(args):
@@ -423,6 +517,21 @@ def session_id(hook):
     return re.sub(r"[^A-Za-z0-9_-]", "", str(hook.get("session_id") or "none"))[:80]
 
 
+def first_time(*key):
+    """True once per key: the plugin's hooks and a vault repo's own hooks can both fire for one event."""
+    d = STATE / "once"
+    d.mkdir(parents=True, exist_ok=True)
+    for old in d.iterdir():
+        if time.time() - old.stat().st_mtime > 2 * 86400:
+            old.unlink(missing_ok=True)
+    name = re.sub(r"[^A-Za-z0-9_-]", "", "-".join(map(str, key)))[:120]
+    try:
+        with open(d / name, "x"):
+            return True
+    except FileExistsError:
+        return False
+
+
 def changed_by_others(since):
     """Entry names that others added or changed upstream after commit `since`."""
     out = git("log", "--format=@@%ae", "--name-only", f"{since}..HEAD", "--", "vault").stdout
@@ -440,6 +549,8 @@ def changed_by_others(since):
 
 def hook_start():
     hook = hook_input()
+    if ready() and not first_time(session_id(hook), "start", hook.get("source", "")):
+        return
     if not ready():
         return print("# grimoire\nThe grimoire plugin is installed but has no vault on this machine. When it fits, ask the "
                      "user for the shared vault's git URL and run `grim init URL` (see the plugin's SETUP.md).")
@@ -449,7 +560,10 @@ def hook_start():
     skills = [e for e in all_ if e["skill"]]
     out = [f"# grimoire: the shared vault ({len(all_)} entries, {len(skills)} of them skills)",
            "Look things up before you build (`grim find WORDS`, `grim show NAME`, `grim run NAME`) and file what you "
-           "learn or make with `inscribe` (read the grimoire skill first)."]
+           "learn or make with `inscribe` (read the grimoire skill first, or `grim guide`)."]
+    if CHECKOUT:
+        out.append("This folder is the vault repo itself: save with `inscribe` (it commits and pushes at once), "
+                   "never by hand-editing vault/.")
     listed = []
     if skills:
         out.append("Vault skills (a separate set from your own skills, used the same way: when a description fits the "
@@ -500,6 +614,8 @@ def hook_prompt():
     if not terms:
         return
     sid = session_id(hook)
+    if not first_time(sid, "prompt", hashlib.sha1((hook.get("prompt") or "").encode()).hexdigest()[:16]):
+        return
     seen_dir = STATE / "seen"
     seen = set(load(f"seen/{sid}.json", []))
     picks = []
@@ -533,6 +649,10 @@ def main(argv):
         return {"start": hook_start, "prompt": hook_prompt}.get(rest[0] if rest else "", lambda: die("usage: grim hook start|prompt"))()
     if cmd == "me":
         return cmd_me()
+    if cmd == "guide":
+        return cmd_guide(rest)
+    if cmd == "scaffold":
+        return cmd_scaffold(rest)
     if cmd == "skills":
         sync()
         return cmd_skills()

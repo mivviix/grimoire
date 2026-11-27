@@ -9,11 +9,13 @@ from pathlib import Path
 LIB = Path(__file__).resolve().parent.parent / "lib"
 TMP = tempfile.TemporaryDirectory()
 BASE = {k: v for k, v in os.environ.items() if not k.startswith(("GRIMOIRE_", "GIT_"))} | {"XDG_CACHE_HOME": f"{TMP.name}/cache",
-                                                                                         "CLAUDE_CONFIG_DIR": f"{TMP.name}/claude"}
+                                                                                         "CLAUDE_CONFIG_DIR": f"{TMP.name}/claude",
+                                                                                         "XDG_DATA_HOME": f"{TMP.name}/data"}
 
 
-def run(tool, *args, stdin=None, ok=True, env=None, code=None):
-    r = subprocess.run([sys.executable, "-I", "-X", "utf8", str(LIB / f"{tool}.py"), *args], input=stdin or "",
+def run(tool, *args, stdin=None, ok=True, env=None, code=None, cwd=None):
+    script = [str(LIB / f"{tool}.py")] if tool in ("grim", "inscribe") else [tool]
+    r = subprocess.run([sys.executable, "-I", "-X", "utf8", *script, *args], input=stdin or "", cwd=cwd,
                        capture_output=True, text=True, env=env or {**BASE, "GRIMOIRE_VAULT": vault})
     want = code if code is not None else (0 if ok else None)
     assert (r.returncode == want) if want is not None else r.returncode != 0, \
@@ -21,7 +23,11 @@ def run(tool, *args, stdin=None, ok=True, env=None, code=None):
     return r.stdout + r.stderr
 
 
-def hook(kind, prompt="", sid="s1", env=None):
+CALLS = iter(range(10**6))
+
+
+def hook(kind, prompt="", sid=None, env=None):
+    sid = sid or ("s1" if kind == "prompt" else f"start{next(CALLS)}")  # each start is a new session unless given
     return run("grim", "hook", kind, stdin=json.dumps({"prompt": prompt, "session_id": sid}), env=env)
 
 
@@ -164,5 +170,35 @@ assert "changed" in run("grim", "run", "echo", "--ok", env=b)
 run("inscribe", "me", "secret preference", env=a)
 everything = subprocess.run(["git", "--git-dir", f"{tmp}/up.git", "log", "-p", "--all"], capture_output=True, text=True)
 assert "secret preference" not in everything.stdout
+
+# --- the vault repo opened directly: a folder on a PC, a cloud session on a side branch --------
+sh("git", "init", "-q", "--bare", "-b", "main", "veul.git")
+sh("git", "clone", "-q", "veul.git", "pc")
+pc, phone, tools = f"{tmp}/pc", f"{tmp}/phone", Path(f"{tmp}/tools")
+(tools / ".git").mkdir(parents=True)                                         # stands in for the fetched tools
+for d in ("lib", "commands", "skills", "bin"):
+    (tools / d).symlink_to(LIB.parent / d)
+a_pc = {k: v for k, v in a.items() if k != "GRIMOIRE_HOME"} | {"GRIMOIRE_TOOLS": str(tools)}
+assert "added:" in run("grim", "scaffold", "--tools", "https://example.invalid/grimoire", env=a_pc, cwd=pc)
+assert Path(f"{pc}/.grimoire-vault").exists() and "example.invalid" in Path(f"{pc}/.grimoire/run.py").read_text()
+assert "nothing to add" in run("grim", "scaffold", env=a_pc, cwd=pc)
+os.makedirs(f"{pc}/vault", exist_ok=True)
+run("inscribe", "new", "ui/buttons", "-s", "button facts", "--new-shelf", "ui", stdin="- x\n", env=a_pc, cwd=f"{pc}/vault")
+main_log = lambda: subprocess.run(["git", "--git-dir", f"{tmp}/veul.git", "log", "--oneline", "main"],
+                                  capture_output=True, text=True).stdout
+assert "new ui/buttons.md" in main_log()                                     # pushed from the PC folder
+sh("git", "clone", "-q", "veul.git", "phone")
+sh("git", "checkout", "-qb", "claude/some-session", cwd=phone)
+b_phone = {k: v for k, v in b.items() if k != "GRIMOIRE_HOME"} | {"GRIMOIRE_TOOLS": str(tools),
+                                                                   "CLAUDE_ENV_FILE": f"{tmp}/envfile"}
+start = run(f"{phone}/.grimoire/run.py", "hook", "start", stdin='{"session_id": "ph"}', env=b_phone, cwd=phone)
+assert "vault repo itself" in start and "ui (1)" in start, start
+assert "GRIMOIRE_CHECKOUT" in Path(f"{tmp}/envfile").read_text()
+assert run(f"{phone}/.grimoire/run.py", "hook", "start", stdin='{"session_id": "ph"}', env=b_phone, cwd=phone) == ""
+run(f"{phone}/.grimoire/run.py", "inscribe", "add", "buttons", stdin="- from the phone\n", env=b_phone, cwd=phone)
+assert "add to ui/buttons" in main_log()                                     # side branch saves land on main
+os.utime(f"{pc}/.git/grimoire-pulled", (0, 0))
+assert "from the phone" in run("grim", "show", "buttons", env=a_pc, cwd=pc)
+assert not subprocess.run(["git", "-C", pc, "status", "--porcelain"], capture_output=True, text=True).stdout  # state stays in .git
 
 print("ok")

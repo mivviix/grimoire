@@ -1,31 +1,30 @@
 # Setting up grimoire (for the agent)
 
-You are installing grimoire for your user: a Claude Code plugin plus a shared vault on git. Do these steps,
-asking the user only where it says so. Works the same on Linux, macOS and Windows.
+grimoire is a shared vault on GitHub that agents read with `grim` and grow with `inscribe`. Every save goes to
+GitHub at once. Do these steps, asking the user only where it says so. Same on Linux, macOS and Windows.
 
-1. **Check tools.** `git --version` and Python 3.11+ (`python3 --version`, or `python`/`py -3` on Windows).
-   Optional: `uv` (some vault tools need it for their dependencies); offer to install it if missing.
-2. **Which vault?** Ask the user for the vault's git URL: the repo they were invited to (needs push
-   access) or their own fork of this repo. Default: this repo's URL if they have push access.
-3. **Install the plugin** (`SOURCE` = the GitHub `owner/repo` or the path of a local clone):
+1. **Check tools.** `git --version` and Python 3.11+ (`python3 --version`, or `python` / `py -3` on Windows).
+   Optional: `uv` (some vault tools need it); offer to install it if missing. Make sure git can push to
+   GitHub (for example `gh auth login`); leave passwords and tokens to the user.
+2. **Which vault?** Ask for the vault repo's URL (they need push access to it). A brand-new, empty repo is
+   fine: step 3 sets it up.
+3. **The vault folder (the main way in).** Ask where they want it, then `git clone VAULT_URL FOLDER`. If the
+   clone has no `.grimoire-vault` file yet, set it up once from a clone of this repo:
+   `cd FOLDER && python3 <grimoire clone>/lib/grim.py scaffold`. From now on, opening Claude in that folder
+   (on the PC, or a cloud session on the same repo from their phone) is all they need: saves go to GitHub,
+   and on the PC their own tools (Roblox Studio, MCPs, PowerShell) work as usual.
+4. **Optional: the plugin**, to use the vault from sessions in *other* folders too (their game projects).
    ```
-   claude plugin marketplace add SOURCE
+   claude plugin marketplace add SOURCE      # SOURCE = this repo's GitHub owner/repo, or a local clone
    claude plugin install grimoire@grimoire
+   <grimoire clone>/bin/grim init VAULT_URL  # Windows: <grimoire clone>\bin\grim.cmd init VAULT_URL
    ```
-4. **Make the vault clone.** The plugin's `grim` reaches PATH only in the next session, so now run it from a
-   clone of this repo (`git clone` it to a temporary folder if you don't have one): `<clone>/bin/grim init
-   VAULT_URL` (Windows: `<clone>\bin\grim.cmd init VAULT_URL`). It clones the vault into the user's data
-   folder. If pushing will need a login, make sure git is signed in (for GitHub: `gh auth login` or a
-   credential helper); leave passwords and tokens to the user.
-5. **Personal memory.** Ask: "Do you already use a memory system for Claude (one that remembers you)?"
-   If yes: `<clone>/bin/grim config me off`. If no, leave it on: grimoire keeps a small private memory about
-   them on this machine only; it is never pushed.
-6. **Permissions (ask first).** Offer to add `"Bash(grim *)"` and `"Bash(inscribe *)"` to
-   `permissions.allow` in `~/.claude/settings.json`, so lookups don't prompt every time.
-7. **Done.** Tell the user to start a new session. Its start should show a short "grimoire" block, and
-   `grim` should print the vault's shelves (or "empty" for a new vault). To feed the vault what they already
-   know, they can run `/grimoire:train`.
+5. **Personal memory.** Ask: "Do you already use a memory system for Claude (one that remembers you)?" If yes:
+   `grim config me off` (run from the vault folder: `python3 .grimoire/run.py grim config me off`).
+6. **Permissions (ask first).** Offer to add `"Bash(grim *)"`, `"Bash(inscribe *)"` and
+   `"Bash(python3 .grimoire/run.py *)"` to `permissions.allow` in `~/.claude/settings.json`.
+7. **Done.** Tell them to start a new session in the vault folder. Its start shows a short "grimoire" block.
+   To feed the vault what they already know: `/grimoire:train` with the plugin, or just "let's train the vault".
 
-Updating later: `claude plugin marketplace update grimoire && claude plugin update grimoire@grimoire`.
-Removing: `claude plugin uninstall grimoire@grimoire`; the clone and personal memory are in
-`~/.local/share/grimoire*` (`%LOCALAPPDATA%\grimoire*` on Windows).
+Updating: the vault folder fetches the newest tools by itself. The plugin:
+`claude plugin marketplace update grimoire && claude plugin update grimoire@grimoire`.

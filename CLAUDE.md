@@ -17,8 +17,14 @@ grimoire is its own thing. It never touches, calls or depends on forgekit or any
   clone (`~/.local/share/grimoire`, `%LOCALAPPDATA%\grimoire`; `GRIMOIRE_HOME`) made by `grim init URL`.
   `grim` pulls at most once a minute; `inscribe` pulls before and pushes after every write. A failed push
   stays committed and goes up on the next run. `GRIMOIRE_VAULT=<folder>` is the only unsynced mode (tests).
-  New read or write paths go through `sync()` / `push()`. In a session here, `git pull` before touching
-  `vault/`: agents push to it all the time.
+  New read or write paths go through `sync()` / `push()`.
+- **Two ways in, one vault.** The vault is its own repo (made a vault by `grim scaffold`: `.grimoire-vault`,
+  its own `CLAUDE.md`, `.claude/settings.json` hooks and `.grimoire/run.py`, from `template/`). Either the
+  plugin brings it into sessions in any folder (private clone), or the user opens the vault repo itself:
+  a folder on their PC (local tools work) or a cloud session from their phone (no plugin there: `run.py`
+  fetches the tools). Inside a checkout grim works on it directly, keeps state in `.git/grimoire-state`,
+  and always pulls from and pushes to the default branch, whatever branch the session is on. Both hook sets
+  can fire in one session: `first_time()` keeps it to one output.
 - **Distributable to anyone.** Works for anyone who clones it, on Linux, macOS or Windows, with git and
   Python 3.11+ (uv only for tools that declare dependencies). No personal paths, accounts or machine facts
   anywhere in the repo. No required private tools. Stdlib Python only in grimoire's own code. README,
@@ -38,12 +44,13 @@ grimoire is its own thing. It never touches, calls or depends on forgekit or any
 ```
 .claude-plugin/   plugin.json + marketplace.json (the repo is its own marketplace)
 commands/         train.md: /grimoire:train
+template/         what `grim scaffold` adds to a vault repo
 hooks/hooks.json  SessionStart → grim hook start, UserPromptSubmit → grim hook prompt
 bin/              grim, inscribe (sh) + .cmd twins; Claude Code puts a plugin's bin/ on the agent's PATH
 lib/              grim.py (read, sync, hooks, run), inscribe.py (write); stdlib only
 skills/grimoire/  SKILL.md: what agents are told
 tests/            test_grimoire.py: python3 tests/test_grimoire.py
-vault/            the shared content (upstream; appears with the first entry)
+vault/            unused here: the vault is its own repo now
 ```
 
 Entries: `shelf/name.md` (frontmatter `summary:`, `tags:`), a code file with `-- summary:` / `-- tags:`

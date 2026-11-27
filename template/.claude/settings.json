@@ -1,0 +1,26 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$(command -v python3 || command -v python || command -v py)\" \"$CLAUDE_PROJECT_DIR/.grimoire/run.py\" hook start",
+            "timeout": 120
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$(command -v python3 || command -v python || command -v py)\" \"$CLAUDE_PROJECT_DIR/.grimoire/run.py\" hook prompt",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}
