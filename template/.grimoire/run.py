@@ -6,6 +6,7 @@
 Written by `grim scaffold`. The tools live in a cache folder outside this repo (GRIMOIRE_TOOLS moves it).
 """
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -25,7 +26,11 @@ def fetch():
     stamp = TOOLS / ".git" / "grimoire-fetched"
     if not (TOOLS / ".git").is_dir():
         TOOLS.parent.mkdir(parents=True, exist_ok=True)
-        subprocess.run(["git", "clone", "-q", "--depth", "1", TOOLS_URL, str(TOOLS)], capture_output=True)
+        env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
+        clone = ["clone", "-q", "--depth", "1", TOOLS_URL, str(TOOLS)]
+        if subprocess.run(["git", *clone], capture_output=True, env=env).returncode and shutil.which("gh"):
+            subprocess.run(["git", "-c", "credential.helper=", "-c", "credential.helper=!gh auth git-credential",
+                            *clone], capture_output=True, env=env)  # git has no login: use the GitHub CLI's
     elif not stamp.exists() or time.time() - stamp.stat().st_mtime > 3600:
         subprocess.run(["git", "-C", str(TOOLS), "pull", "-q", "--ff-only"], capture_output=True)
     if (TOOLS / ".git").is_dir():

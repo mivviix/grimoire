@@ -181,7 +181,7 @@ for d in ("lib", "commands", "skills", "bin"):
 a_pc = {k: v for k, v in a.items() if k != "GRIMOIRE_HOME"} | {"GRIMOIRE_TOOLS": str(tools)}
 assert "added:" in run("grim", "scaffold", "--tools", "https://example.invalid/grimoire", env=a_pc, cwd=pc)
 assert Path(f"{pc}/.grimoire-vault").exists() and "example.invalid" in Path(f"{pc}/.grimoire/run.py").read_text()
-assert "nothing to add" in run("grim", "scaffold", env=a_pc, cwd=pc)
+assert "nothing to add" in run("grim", "scaffold", "--tools", "https://example.invalid/grimoire", env=a_pc, cwd=pc)
 os.makedirs(f"{pc}/vault", exist_ok=True)
 run("inscribe", "new", "ui/buttons", "-s", "button facts", "--new-shelf", "ui", stdin="- x\n", env=a_pc, cwd=f"{pc}/vault")
 main_log = lambda: subprocess.run(["git", "--git-dir", f"{tmp}/veul.git", "log", "--oneline", "main"],

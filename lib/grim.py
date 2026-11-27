@@ -12,7 +12,8 @@
   grim init URL                 first-time setup: clone the shared vault from its git URL
   grim guide [train]            how to use and grow the vault (the grimoire skill; `train`: a training session)
   grim scaffold [--tools URL]   make the current vault repo work when opened directly (PC folder or phone
-                                session): adds its CLAUDE.md, hooks and tool launcher, then pushes
+                                session): adds its CLAUDE.md, hooks and tool launcher (rerun: refreshes the
+                                launcher), then pushes
   grim config [me on|off]       show or change settings
   grim hook start|prompt        used by the plugin's hooks (reads hook JSON on stdin)
 
@@ -117,6 +118,23 @@ def git(*args, cwd=None):
     return subprocess.run(["git", "-C", str(cwd or CLONE), *args], capture_output=True, text=True)
 
 
+GH_HELPER = ["-c", "credential.helper=", "-c", "credential.helper=!gh auth git-credential"]
+
+
+def remote(*args, cwd=None):
+    """A git command that talks to the remote. Never waits on a password prompt; if git has no login that
+    works, tries again with the GitHub CLI's (`gh auth login`), for this one command only."""
+    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
+    cmd = ["git"] + (["-C", str(cwd or CLONE)] if args[0] != "clone" else [])
+    r = subprocess.run(cmd + list(args), capture_output=True, text=True, env=env)
+    if r.returncode and shutil.which("gh") and re.search(
+            r"auth|credential|could not read Username|permission|403|denied|not found", r.stderr, re.I):
+        g = subprocess.run(cmd + GH_HELPER + list(args), capture_output=True, text=True, env=env)
+        if g.returncode == 0 or "couldn't find remote ref" in g.stderr:
+            return g
+    return r
+
+
 def ready():
     return bool(LOCAL) or (CLONE / ".git").is_dir()
 
@@ -128,14 +146,14 @@ def _default_branch():
 
 def _pull():
     if CHECKOUT:  # a cloud session may sit on its own branch: always stay on top of the shared one
-        r = git("pull", "-q", "--rebase", "--autostash", "origin", _default_branch())
+        r = remote("pull", "-q", "--rebase", "--autostash", "origin", _default_branch())
         if r.returncode and "couldn't find remote ref" in r.stderr:
             r.returncode = 0
         return r
     if git("rev-parse", "--abbrev-ref", "@{u}").returncode == 0:
-        return git("pull", "-q", "--rebase")
+        return remote("pull", "-q", "--rebase")
     branch = git("branch", "--show-current").stdout.strip() or "main"
-    r = git("pull", "-q", "--rebase", "origin", branch)
+    r = remote("pull", "-q", "--rebase", "origin", branch)
     if r.returncode == 0:
         git("branch", "-q", "-u", f"origin/{branch}")
     elif "couldn't find remote ref" in r.stderr:  # a brand-new, still empty vault
@@ -175,12 +193,13 @@ def push():
         if git("rev-parse", "--abbrev-ref", "@{u}").returncode == 0 and git("rev-list", "--count", "@{u}..HEAD").stdout.strip() == "0":
             return
         args = ["push", "-q", "-u", "origin", "HEAD"]
-    if git(*args).returncode == 0:
+    if remote(*args).returncode == 0:
         return
-    if _pull().returncode == 0 and git(*args).returncode == 0:
+    if _pull().returncode == 0 and remote(*args).returncode == 0:
         return
     git("rebase", "--abort")
-    warn("saved locally but not pushed yet (offline or no push access); it goes up on the next run")
+    warn("saved locally but not pushed yet (offline, or no GitHub login with push access: `gh auth login` "
+         "fixes the login); it goes up on the next run")
 
 
 def me_email():
@@ -434,7 +453,7 @@ def cmd_init(args):
     if not url:
         die("usage: grim init URL  (the shared vault's git URL)")
     CLONE.parent.mkdir(parents=True, exist_ok=True)
-    r = subprocess.run(["git", "clone", "-q", url, str(CLONE)], capture_output=True, text=True)
+    r = remote("clone", "-q", url, str(CLONE))
     if r.returncode:
         die(f"could not clone {url}: {r.stderr.strip()}")
     (CLONE / ".git" / "grimoire-pulled").touch()
@@ -475,10 +494,12 @@ def cmd_scaffold(args):
     made = []
     for src in sorted(p for p in (ROOT / "template").rglob("*") if p.is_file()):
         dst = CLONE / src.relative_to(ROOT / "template")
-        if dst.exists():
+        text = src.read_text().replace("{TOOLS_URL}", url)
+        ours = src.relative_to(ROOT / "template").as_posix() == ".grimoire/run.py"  # the launcher stays current
+        if dst.exists() and not (ours and dst.read_text() != text):
             continue
         dst.parent.mkdir(parents=True, exist_ok=True)
-        dst.write_text(src.read_text().replace("{TOOLS_URL}", url))
+        dst.write_text(text)
         made.append(dst)
     marker = CLONE / MARKER
     if not marker.exists():
@@ -488,7 +509,7 @@ def cmd_scaffold(args):
         return print("nothing to add: this vault repo is already set up")
     rel = [str(p.relative_to(CLONE)) for p in made]
     git("add", "--", *rel)
-    git("commit", "-q", "-m", "grimoire: make the vault work when opened directly", "--", *rel)
+    git("commit", "-q", "-m", "grimoire: set up or refresh the vault's launcher and hooks", "--", *rel)
     push()
     print("added: " + ", ".join(rel))
 
