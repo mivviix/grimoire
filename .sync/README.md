@@ -5,6 +5,8 @@ Files over 5 MB stay on the device. If two devices edit the same file, both vers
 the other device's keeps the name, this one's is saved as `name.conflict-<PC>-<time>.ext`.
 Log: `.git\grimoire-sync.log`.
 
+Claude sessions: open this folder with worktree off and stay on `main`; sync pauses on any other branch.
+
 ## Set up on another Windows device
 
 1. Install Git (https://git-scm.com) and GitHub CLI (`winget install GitHub.cli`).

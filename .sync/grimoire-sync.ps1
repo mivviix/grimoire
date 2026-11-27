@@ -63,6 +63,7 @@ function Merge-Remote {
 }
 
 function Sync {
+    if ((git rev-parse --abbrev-ref HEAD) -ne 'main') { Log 'paused: not on main'; return }
     if (Test-Path (Join-Path $gitDir 'MERGE_HEAD')) { git merge --abort 2>&1 | Out-Null }
     Exclude-BigFiles
     git add -A 2>&1 | Out-Null
