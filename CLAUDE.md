@@ -49,8 +49,7 @@ hooks/hooks.json  SessionStart → grim hook start, UserPromptSubmit → grim ho
 bin/              grim, inscribe (sh) + .cmd twins; Claude Code puts a plugin's bin/ on the agent's PATH
 lib/              grim.py (read, sync, hooks, run), inscribe.py (write); stdlib only
 skills/grimoire/  SKILL.md: what agents are told
-tests/            test_grimoire.py: python3 tests/test_grimoire.py (~20-25 s on Windows: run it only after
-                  changing lib/, bin/, hooks/ or template/; to check the repo is usable, `git status -sb` is enough)
+tests/            test_grimoire.py: python3 tests/test_grimoire.py
 vault/            unused here: the vault is its own repo now
 ```
 

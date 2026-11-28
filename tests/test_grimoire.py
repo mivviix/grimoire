@@ -177,10 +177,7 @@ sh("git", "clone", "-q", "veul.git", "pc")
 pc, phone, tools = f"{tmp}/pc", f"{tmp}/phone", Path(f"{tmp}/tools")
 (tools / ".git").mkdir(parents=True)                                         # stands in for the fetched tools
 for d in ("lib", "commands", "skills", "bin"):
-    try:
-        (tools / d).symlink_to(LIB.parent / d)
-    except OSError:                                                          # Windows without symlink rights
-        __import__("shutil").copytree(LIB.parent / d, tools / d)
+    (tools / d).symlink_to(LIB.parent / d)
 a_pc = {k: v for k, v in a.items() if k != "GRIMOIRE_HOME"} | {"GRIMOIRE_TOOLS": str(tools)}
 assert "added:" in run("grim", "scaffold", "--tools", "https://example.invalid/grimoire", env=a_pc, cwd=pc)
 assert Path(f"{pc}/.grimoire-vault").exists() and "example.invalid" in Path(f"{pc}/.grimoire/run.py").read_text()
